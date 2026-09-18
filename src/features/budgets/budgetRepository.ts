@@ -50,5 +50,14 @@ export function createBudgetRepository(client: BudgetRepositoryClient, household
       read(await client.from('budget_category_limits').delete().eq('monthly_budget_id', monthlyBudgetId), 'заменить лимиты категорий')
       if (limits.length > 0) read(await client.from('budget_category_limits').insert(limits.map((limit) => ({ monthly_budget_id: monthlyBudgetId, category_id: limit.categoryId, limit_satang: limit.limitSatang }))), 'сохранить лимиты категорий')
     },
+    async save(input: MonthlyBudget): Promise<void> {
+      const response = await client.from('monthly_budgets').upsert({ household_id: householdId, month: firstOfMonth(input.month), owner: input.owner, total_limit_satang: input.totalLimitSatang }, { onConflict: 'household_id,month,owner' }).select(BUDGET_COLUMNS).single()
+      const row = budgetSchema.safeParse(read(response, 'сохранить бюджет'))
+      if (!row.success) throw new Error('Получены некорректные данные бюджета.')
+      read(await client.from('budget_category_limits').delete().eq('monthly_budget_id', row.data.id), 'заменить лимиты категорий')
+      if (input.categoryLimits.length > 0) {
+        read(await client.from('budget_category_limits').insert(input.categoryLimits.map((limit) => ({ monthly_budget_id: row.data.id, category_id: limit.categoryId, limit_satang: limit.limitSatang }))), 'сохранить лимиты категорий')
+      }
+    },
   }
 }

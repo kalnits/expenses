@@ -90,6 +90,7 @@ export type Database = {
       accept_household_invitation: { Args: Record<PropertyKey, never>; Returns: string }
       bootstrap_household: { Args: { household_name: string; invited_email: string }; Returns: string }
       is_household_member: { Args: { target_household_id: string }; Returns: boolean }
+      merge_category: { Args: { source_category_id: string; target_category_id: string }; Returns: undefined }
     }
     Enums: {
       budget_owner: 'ilya' | 'masha' | 'mutual'
