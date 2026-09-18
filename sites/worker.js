@@ -1,4 +1,4 @@
-/* global AbortController, DOMException, File, FormData, Response, URL, btoa, clearTimeout, crypto, fetch, setTimeout */
+/* global AbortController, DOMException, File, FormData, Request, Response, URL, btoa, clearTimeout, crypto, fetch, setTimeout */
 
 const HOUSEHOLD_ID = 'thailand-household'
 const DEFAULT_ILYA_EMAIL = 'kalnit2308@gmail.com'
@@ -824,7 +824,7 @@ const worker = {
     const fallbackUrl = new URL(request.url)
     fallbackUrl.pathname = '/index.html'
     fallbackUrl.search = ''
-    return env.ASSETS.fetch(fallbackUrl.toString())
+    return env.ASSETS.fetch(new Request(fallbackUrl, request))
   },
 }
 
