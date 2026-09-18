@@ -7,8 +7,9 @@ type RepositoryResponse = { data: unknown; error: RepositoryError }
 
 interface ExpenseQuery extends PromiseLike<RepositoryResponse> {
   select(columns: string): ExpenseQuery
-  eq(column: string, value: string): ExpenseQuery
+  eq(column: string, value: string | number): ExpenseQuery
   order(column: string, options?: { ascending?: boolean }): ExpenseQuery
+  limit(count: number): ExpenseQuery
   insert(values: unknown): ExpenseQuery
   update(values: unknown): ExpenseQuery
   delete(): ExpenseQuery
@@ -75,6 +76,15 @@ export function createExpenseRepository(client: ExpenseRepositoryClient, househo
     async create(input: ExpenseInput): Promise<ExpenseRecord> {
       const response = await client.from('expenses').insert({ ...toRow(input), household_id: householdId }).select(EXPENSE_COLUMNS).single()
       return mapExpense(readResponse(response, 'создать расход'))
+    },
+    async findDuplicate(expenseDate: string, amountSatang: number, normalizedMerchant: string): Promise<ExpenseRecord | null> {
+      if (!normalizedMerchant) return null
+      const response = await client.from('expenses').select(EXPENSE_COLUMNS).eq('household_id', householdId).eq('expense_date', expenseDate).eq('amount_satang', amountSatang).limit(25)
+      const data = readResponse(response, 'проверить похожие расходы')
+      const rows = z.array(expenseRowSchema).safeParse(data)
+      if (!rows.success) throw new Error('Получены некорректные данные расходов.')
+      const duplicate = rows.data.find((row) => row.normalized_merchant === normalizedMerchant)
+      return duplicate ? mapExpense(duplicate) : null
     },
     async update(id: string, input: ExpenseUpdate): Promise<ExpenseRecord> {
       const response = await client.from('expenses').update(toRow(input)).eq('id', id).eq('household_id', householdId).select(EXPENSE_COLUMNS).single()

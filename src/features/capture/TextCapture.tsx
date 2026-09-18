@@ -1,0 +1,8 @@
+import { useRef, useState, type FormEvent } from 'react'
+import { parseText, type CaptureResult } from './captureClient'
+
+export function TextCapture({ onResult, onManual }: { onResult: (result: CaptureResult) => void; onManual: () => void }) {
+  const [text, setText] = useState(''); const [error, setError] = useState<string | null>(null); const [loading, setLoading] = useState(false); const abort = useRef<AbortController | null>(null)
+  async function submit(event: FormEvent) { event.preventDefault(); setError(null); setLoading(true); abort.current = new AbortController(); try { onResult(await parseText(text, abort.current.signal)) } catch (caught) { if (!(caught instanceof DOMException && caught.name === 'AbortError')) setError(caught instanceof Error ? caught.message : 'Не удалось распознать текст.') } finally { setLoading(false); abort.current = null } }
+  return <form className="section-card stack" onSubmit={submit}><label>Опишите расход<textarea rows={5} maxLength={4000} value={text} onChange={(event) => setText(event.target.value)} placeholder="Например: вчера заплатил 850 бат в Lotus’s за продукты, с карты Ильи" autoFocus /></label>{error ? <p className="error-text" role="alert">{error}</p> : null}<div className="button-row"><button className="button secondary" type="button" onClick={onManual}>Заполнить вручную</button>{loading ? <button className="button secondary" type="button" onClick={() => abort.current?.abort()}>Отменить</button> : null}<button className="button primary" disabled={loading || !text.trim()}>{loading ? 'Разбираем…' : 'Распознать'}</button></div></form>
+}

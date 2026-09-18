@@ -34,5 +34,10 @@ export function createCategoryRepository(client: SupabaseClient<Database>, house
       const { error } = await client.rpc('merge_category', { source_category_id: sourceId, target_category_id: targetId })
       if (error) throw new Error(`Не удалось объединить категории: ${error.message}`)
     },
+    async rememberMerchant(normalizedMerchant: string, categoryId: string): Promise<void> {
+      if (!normalizedMerchant) return
+      const { error } = await client.from('merchant_rules').upsert({ household_id: householdId, normalized_merchant: normalizedMerchant, category_id: categoryId }, { onConflict: 'household_id,normalized_merchant' })
+      if (error) throw new Error(`Не удалось запомнить категорию магазина: ${error.message}`)
+    },
   }
 }
