@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">Расходы в Таиланде</title>
+  <rect width="128" height="128" rx="28" fill="#12372a"/>
+  <path d="M34 36h60v56H34z" fill="#f6f2e8"/>
+  <path d="M44 52h40M44 68h24M44 84h32" stroke="#12372a" stroke-linecap="round" stroke-width="8"/>
+  <circle cx="92" cy="90" r="20" fill="#e6ad45"/>
+  <path d="M92 80v20m-7-12h14" stroke="#12372a" stroke-linecap="round" stroke-width="5"/>
+</svg>
