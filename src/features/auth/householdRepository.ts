@@ -1,7 +1,13 @@
-import type { SupabaseClient } from '@supabase/supabase-js'
+import { z } from 'zod'
 
 import type { Person } from '../../domain/expense'
-import type { Database } from '../../lib/database.types'
+import { apiRequest } from '../../lib/api'
+
+const membershipSchema = z.object({
+  householdId: z.string().min(1),
+  person: z.enum(['ilya', 'masha']),
+  userId: z.string().min(1),
+})
 
 export interface HouseholdMembership {
   householdId: string
@@ -9,25 +15,8 @@ export interface HouseholdMembership {
   userId: string
 }
 
-export async function getCurrentMembership(
-  client: SupabaseClient<Database>,
-): Promise<HouseholdMembership | null> {
-  const { data: userData, error: userError } = await client.auth.getUser()
-  if (userError) throw new Error(`Не удалось проверить пользователя: ${userError.message}`)
-  if (!userData.user) return null
-
-  const { data, error } = await client
-    .from('household_members')
-    .select('household_id, person_key, user_id')
-    .eq('user_id', userData.user.id)
-    .maybeSingle()
-
-  if (error) throw new Error(`Не удалось загрузить семью: ${error.message}`)
-  if (!data) return null
-
-  return {
-    householdId: data.household_id,
-    person: data.person_key as Person,
-    userId: data.user_id,
-  }
+export async function getCurrentMembership(): Promise<HouseholdMembership> {
+  const parsed = membershipSchema.safeParse(await apiRequest<unknown>('/api/session'))
+  if (!parsed.success) throw new Error('Сайт вернул некорректные данные пользователя.')
+  return parsed.data
 }

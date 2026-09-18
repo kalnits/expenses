@@ -1,4 +1,4 @@
-import { copyFile, mkdir } from 'node:fs/promises'
+import { copyFile, cp, mkdir } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -16,5 +16,10 @@ await Promise.all([
   copyFile(
     resolve(projectDirectory, '.openai/hosting.json'),
     resolve(metadataDirectory, 'hosting.json'),
+  ),
+  cp(
+    resolve(projectDirectory, 'drizzle'),
+    resolve(metadataDirectory, 'drizzle'),
+    { recursive: true },
   ),
 ])

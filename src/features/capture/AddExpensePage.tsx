@@ -3,12 +3,11 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
 import { queryKeys, useHousehold } from '../../app/providers'
-import { getSupabaseClient } from '../../lib/supabase'
 import { createCategoryRepository } from '../categories/categoryRepository'
 import { PageState } from '../dashboard/DashboardPage'
 import { ExpenseDraftForm, emptyExpenseDraft, type ExpenseDraft } from '../expenses/ExpenseDraftForm'
 import { ExpensePreview } from '../expenses/ExpensePreview'
-import { createExpenseRepository, type ExpenseInput, type ExpenseRecord, type ExpenseRepositoryClient } from '../expenses/expenseRepository'
+import { createExpenseRepository, type ExpenseInput, type ExpenseRecord } from '../expenses/expenseRepository'
 import { normalizeMerchant } from '../expenses/duplicate'
 import { requestExchangeRate } from '../../lib/displayCurrency'
 import { ReceiptCapture } from './ReceiptCapture'
@@ -23,8 +22,8 @@ async function invalidateLedger(queryClient: ReturnType<typeof useQueryClient>, 
 }
 
 export function AddExpensePage() {
-  const navigate = useNavigate(); const queryClient = useQueryClient(); const { householdId, userId } = useHousehold(); const client = getSupabaseClient()
-  const repository = createExpenseRepository(client as unknown as ExpenseRepositoryClient, householdId); const categoryRepository = createCategoryRepository(client, householdId)
+  const navigate = useNavigate(); const queryClient = useQueryClient(); const { householdId, userId } = useHousehold()
+  const repository = createExpenseRepository(); const categoryRepository = createCategoryRepository()
   const categories = useQuery({ queryKey: queryKeys.categories(householdId), queryFn: () => categoryRepository.list() })
   const [mode, setMode] = useState<CaptureMode>('text'); const [capture, setCapture] = useState<CaptureResult | null>(null); const [draft, setDraft] = useState<ExpenseDraft | null>(null); const [preview, setPreview] = useState(false); const [duplicate, setDuplicate] = useState<ExpenseRecord | null>(null)
   const initial = () => emptyExpenseDraft(categories.data?.find((item) => item.isActive)?.id)

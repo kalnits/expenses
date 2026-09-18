@@ -5,11 +5,10 @@ import { currentBangkokMonth, monthBounds, ownerLabels, previousMonth } from '..
 import { queryKeys, useHousehold } from '../../app/providers'
 import type { MonthlyBudget } from '../../domain/budget'
 import type { BudgetOwner } from '../../domain/expense'
-import { getSupabaseClient } from '../../lib/supabase'
 import { createCategoryRepository, type CategoryRecord } from '../categories/categoryRepository'
 import { PageState } from '../dashboard/DashboardPage'
-import { createExpenseRepository, type ExpenseRecord, type ExpenseRepositoryClient } from '../expenses/expenseRepository'
-import { createBudgetRepository, type BudgetRepositoryClient } from './budgetRepository'
+import { createExpenseRepository, type ExpenseRecord } from '../expenses/expenseRepository'
+import { createBudgetRepository } from './budgetRepository'
 import { MoneyAmount } from '../../lib/displayCurrency'
 
 const owners: BudgetOwner[] = ['ilya', 'masha', 'mutual']
@@ -42,14 +41,13 @@ function BudgetEditor({ month, owner, initial, copied, categories, expenses, onS
 
 export function BudgetsPage() {
   const { householdId } = useHousehold()
-  const client = getSupabaseClient()
   const queryClient = useQueryClient()
   const [month, setMonth] = useState(currentBangkokMonth())
   const [owner, setOwner] = useState<BudgetOwner>('ilya')
-  const repository = createBudgetRepository(client as unknown as BudgetRepositoryClient, householdId)
+  const repository = createBudgetRepository()
   const budgets = useQuery({ queryKey: queryKeys.budgets(householdId), queryFn: () => repository.list() })
-  const expenses = useQuery({ queryKey: queryKeys.expenses(householdId), queryFn: () => createExpenseRepository(client as unknown as ExpenseRepositoryClient, householdId).list() })
-  const categories = useQuery({ queryKey: queryKeys.categories(householdId), queryFn: () => createCategoryRepository(client, householdId).list() })
+  const expenses = useQuery({ queryKey: queryKeys.expenses(householdId), queryFn: () => createExpenseRepository().list() })
+  const categories = useQuery({ queryKey: queryKeys.categories(householdId), queryFn: () => createCategoryRepository().list() })
   const save = useMutation({ mutationFn: (budget: MonthlyBudget) => repository.save(budget), onSuccess: async () => { await Promise.all([queryClient.invalidateQueries({ queryKey: queryKeys.budgets(householdId) }), queryClient.invalidateQueries({ queryKey: queryKeys.dashboard(householdId) })]) } })
 
   if (budgets.isPending || expenses.isPending || categories.isPending) return <PageState text="Загружаем бюджеты…" />

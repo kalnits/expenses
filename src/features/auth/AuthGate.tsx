@@ -1,59 +1,35 @@
-import { useEffect, useState, type ReactNode } from 'react'
-import type { Session, SupabaseClient } from '@supabase/supabase-js'
+import { useQuery } from '@tanstack/react-query'
+import type { ReactNode } from 'react'
 
-import type { Database } from '../../lib/database.types'
-import { SignInForm } from './SignInForm'
+import { ApiError } from '../../lib/api'
+import { getCurrentMembership, type HouseholdMembership } from './householdRepository'
 
 interface AuthGateProps {
-  children: ReactNode
-  client: Pick<SupabaseClient<Database>, 'auth'>
+  children: (membership: HouseholdMembership) => ReactNode
 }
 
-export function AuthGate({ children, client }: AuthGateProps) {
-  const [session, setSession] = useState<Session | null | undefined>(undefined)
+export function AuthGate({ children }: AuthGateProps) {
+  const membership = useQuery({
+    queryKey: ['membership'],
+    queryFn: getCurrentMembership,
+    retry: false,
+  })
 
-  useEffect(() => {
-    let isMounted = true
-
-    void client.auth.getSession().then(({ data }) => {
-      if (isMounted) {
-        setSession(data.session)
-      }
-    })
-
-    const { data: listener } = client.auth.onAuthStateChange((_event, nextSession) => {
-      setSession(nextSession)
-    })
-
-    return () => {
-      isMounted = false
-      listener.subscription.unsubscribe()
-    }
-  }, [client])
-
-  if (session === undefined) {
-    return <p role="status">Проверяем вход…</p>
+  if (membership.isPending) {
+    return <main className="center-state" role="status">Проверяем доступ…</main>
   }
 
-  if (!session) {
+  if (membership.isError) {
+    const forbidden = membership.error instanceof ApiError && membership.error.status === 403
     return (
-      <SignInForm
-        sendOtp={async (email) => {
-          const { error } = await client.auth.signInWithOtp({
-            email,
-            options: {
-              shouldCreateUser: false,
-              emailRedirectTo: window.location.origin,
-            },
-          })
-
-          if (error) {
-            throw error
-          }
-        }}
-      />
+      <main className="center-state">
+        <p className="eyebrow">Расходы в Таиланде</p>
+        <h1>{forbidden ? 'Нет доступа' : 'Не удалось открыть бюджет'}</h1>
+        <p>{membership.error.message}</p>
+        <button type="button" onClick={() => void membership.refetch()}>Попробовать снова</button>
+      </main>
     )
   }
 
-  return <>{children}</>
+  return <>{children(membership.data)}</>
 }

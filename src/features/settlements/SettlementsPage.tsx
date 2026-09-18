@@ -5,20 +5,18 @@ import { bangkokToday, calculateDebt, debtSentence } from '../../app/ledger'
 import { queryKeys, useHousehold } from '../../app/providers'
 import type { Person } from '../../domain/expense'
 import { parseThb } from '../../domain/money'
-import { getSupabaseClient } from '../../lib/supabase'
 import { PageState } from '../dashboard/DashboardPage'
-import { createExpenseRepository, type ExpenseRepositoryClient } from '../expenses/expenseRepository'
-import { createSettlementRepository, type SettlementRepositoryClient } from './settlementRepository'
+import { createExpenseRepository } from '../expenses/expenseRepository'
+import { createSettlementRepository } from './settlementRepository'
 import { MoneyAmount, useDisplayCurrency, useExchangeRate } from '../../lib/displayCurrency'
 
 const personName: Record<Person, string> = { ilya: 'Илья', masha: 'Маша' }
 
 export function SettlementsPage() {
   const { householdId, userId } = useHousehold()
-  const client = getSupabaseClient()
   const queryClient = useQueryClient()
-  const repository = createSettlementRepository(client as unknown as SettlementRepositoryClient, householdId)
-  const expenses = useQuery({ queryKey: queryKeys.expenses(householdId), queryFn: () => createExpenseRepository(client as unknown as ExpenseRepositoryClient, householdId).list() })
+  const repository = createSettlementRepository()
+  const expenses = useQuery({ queryKey: queryKeys.expenses(householdId), queryFn: () => createExpenseRepository().list() })
   const settlements = useQuery({ queryKey: queryKeys.settlements(householdId), queryFn: () => repository.list() })
   const [from, setFrom] = useState<Person>('masha')
   const [to, setTo] = useState<Person>('ilya')

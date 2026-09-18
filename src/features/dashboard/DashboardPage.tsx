@@ -4,22 +4,20 @@ import { Link } from 'react-router-dom'
 import { bangkokToday, calculateDebt, currentBangkokMonth, debtSentence, monthBounds, ownerLabels } from '../../app/ledger'
 import { queryKeys, useHousehold } from '../../app/providers'
 import type { BudgetOwner } from '../../domain/expense'
-import { createBudgetRepository, type BudgetRepositoryClient } from '../budgets/budgetRepository'
+import { createBudgetRepository } from '../budgets/budgetRepository'
 import { createCategoryRepository } from '../categories/categoryRepository'
-import { createExpenseRepository, type ExpenseRepositoryClient } from '../expenses/expenseRepository'
-import { createSettlementRepository, type SettlementRepositoryClient } from '../settlements/settlementRepository'
-import { getSupabaseClient } from '../../lib/supabase'
+import { createExpenseRepository } from '../expenses/expenseRepository'
+import { createSettlementRepository } from '../settlements/settlementRepository'
 import { MoneyAmount, useDisplayCurrency, useExchangeRate } from '../../lib/displayCurrency'
 
 const owners: BudgetOwner[] = ['ilya', 'masha', 'mutual']
 
 export function DashboardPage() {
   const { householdId } = useHousehold()
-  const client = getSupabaseClient()
-  const expenses = useQuery({ queryKey: queryKeys.expenses(householdId), queryFn: () => createExpenseRepository(client as unknown as ExpenseRepositoryClient, householdId).list() })
-  const budgets = useQuery({ queryKey: queryKeys.budgets(householdId), queryFn: () => createBudgetRepository(client as unknown as BudgetRepositoryClient, householdId).list() })
-  const settlements = useQuery({ queryKey: queryKeys.settlements(householdId), queryFn: () => createSettlementRepository(client as unknown as SettlementRepositoryClient, householdId).list() })
-  const categories = useQuery({ queryKey: queryKeys.categories(householdId), queryFn: () => createCategoryRepository(client, householdId).list() })
+  const expenses = useQuery({ queryKey: queryKeys.expenses(householdId), queryFn: () => createExpenseRepository().list() })
+  const budgets = useQuery({ queryKey: queryKeys.budgets(householdId), queryFn: () => createBudgetRepository().list() })
+  const settlements = useQuery({ queryKey: queryKeys.settlements(householdId), queryFn: () => createSettlementRepository().list() })
+  const categories = useQuery({ queryKey: queryKeys.categories(householdId), queryFn: () => createCategoryRepository().list() })
   const month = currentBangkokMonth()
   const bounds = monthBounds(month)
   const monthExpenses = (expenses.data ?? []).filter((expense) => expense.expenseDate >= bounds.start && expense.expenseDate < bounds.end)

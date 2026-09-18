@@ -1,11 +1,10 @@
 /* eslint-disable react-refresh/only-export-components */
-import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createContext, useContext, useState, type ReactNode } from 'react'
 import { BrowserRouter } from 'react-router-dom'
 
 import { AuthGate } from '../features/auth/AuthGate'
-import { getCurrentMembership, type HouseholdMembership } from '../features/auth/householdRepository'
-import { getSupabaseClient } from '../lib/supabase'
+import type { HouseholdMembership } from '../features/auth/householdRepository'
 import { DisplayCurrencyProvider } from '../lib/displayCurrency'
 
 type HouseholdContextValue = HouseholdMembership
@@ -28,51 +27,20 @@ export function useHousehold(): HouseholdContextValue {
   return value
 }
 
-function HouseholdProvider({ children }: { children: ReactNode }) {
-  const client = getSupabaseClient()
-  const membership = useQuery({
-    queryKey: queryKeys.membership,
-    queryFn: () => getCurrentMembership(client),
-  })
-
-  if (membership.isPending) {
-    return <main className="center-state" role="status">Загружаем семейный бюджет…</main>
-  }
-
-  if (membership.isError) {
-    return (
-      <main className="center-state">
-        <h1>Не удалось открыть бюджет</h1>
-        <p>{membership.error.message}</p>
-        <button type="button" onClick={() => void membership.refetch()}>Попробовать снова</button>
-      </main>
-    )
-  }
-
-  if (!membership.data) {
-    return (
-      <main className="center-state">
-        <p className="eyebrow">Расходы в Таиланде</p>
-        <h1>Семья не найдена</h1>
-        <p>Для этого аккаунта пока нет семейного бюджета. Попросите Илью отправить приглашение или войдите другим адресом.</p>
-      </main>
-    )
-  }
-
-  return <HouseholdContext.Provider value={membership.data}>{children}</HouseholdContext.Provider>
-}
-
 export function AppProviders({ children }: { children: ReactNode }) {
   const [queryClient] = useState(() => new QueryClient({
     defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
   }))
-  const client = getSupabaseClient()
 
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <AuthGate client={client}>
-          <HouseholdProvider><DisplayCurrencyProvider>{children}</DisplayCurrencyProvider></HouseholdProvider>
+        <AuthGate>
+          {(membership) => (
+            <HouseholdContext.Provider value={membership}>
+              <DisplayCurrencyProvider>{children}</DisplayCurrencyProvider>
+            </HouseholdContext.Provider>
+          )}
         </AuthGate>
       </BrowserRouter>
     </QueryClientProvider>

@@ -1,6 +1,5 @@
 import { z } from 'zod'
 
-import { getSupabaseClient } from '../../lib/supabase'
 import type { ExpenseDraft } from '../expenses/ExpenseDraftForm'
 
 const draftSchema = z.object({
@@ -21,14 +20,11 @@ export class CaptureError extends Error {
   constructor(message: string, transcript?: string) { super(message); this.name = 'CaptureError'; this.transcript = transcript }
 }
 
-type Environment = { VITE_SUPABASE_URL?: string; VITE_SUPABASE_ANON_KEY?: string }
-async function invoke(name: string, body: BodyInit, signal?: AbortSignal, contentType?: string): Promise<CaptureResult> {
-  const environment = (import.meta as ImportMeta & { env: Environment }).env
-  const url = environment.VITE_SUPABASE_URL?.replace(/\/$/, '')
-  const anonKey = environment.VITE_SUPABASE_ANON_KEY
-  const { data } = await getSupabaseClient().auth.getSession()
-  if (!url || !anonKey || !data.session) throw new CaptureError('Сеанс истёк. Войдите снова, чтобы распознать расход.')
-  const response = await fetch(`${url}/functions/v1/${name}`, { method: 'POST', body, signal, headers: { apikey: anonKey, Authorization: `Bearer ${data.session.access_token}`, ...(contentType ? { 'Content-Type': contentType } : {}) } })
+async function invoke(path: string, body: BodyInit, signal?: AbortSignal, contentType?: string): Promise<CaptureResult> {
+  const response = await fetch(`/api/capture/${path}`, {
+    method: 'POST', body, signal,
+    headers: contentType ? { 'Content-Type': contentType } : undefined,
+  })
   const payload: unknown = await response.json().catch(() => null)
   if (!response.ok) {
     const details = payload && typeof payload === 'object' ? payload as { error?: unknown; transcript?: unknown } : null
@@ -39,9 +35,9 @@ async function invoke(name: string, body: BodyInit, signal?: AbortSignal, conten
   return parsed.data
 }
 
-export function parseText(text: string, signal?: AbortSignal): Promise<CaptureResult> { return invoke('parse-text', JSON.stringify({ text }), signal, 'application/json') }
-export function parseVoice(audio: Blob, signal?: AbortSignal): Promise<CaptureResult> { const form = new FormData(); form.set('audio', audio, 'expense.webm'); return invoke('transcribe', form, signal) }
-export function parseReceipt(image: Blob, signal?: AbortSignal): Promise<CaptureResult> { return invoke('parse-receipt', image, signal, image.type) }
+export function parseText(text: string, signal?: AbortSignal): Promise<CaptureResult> { return invoke('text', JSON.stringify({ text }), signal, 'application/json') }
+export function parseVoice(audio: Blob, signal?: AbortSignal): Promise<CaptureResult> { const form = new FormData(); form.set('audio', audio, 'expense.webm'); return invoke('voice', form, signal) }
+export function parseReceipt(image: Blob, signal?: AbortSignal): Promise<CaptureResult> { return invoke('receipt', image, signal, image.type) }
 
 export async function downsizeReceipt(file: File): Promise<Blob> {
   if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) throw new CaptureError('Выберите изображение JPEG, PNG или WebP.')

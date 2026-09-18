@@ -5,21 +5,19 @@ import { Link } from 'react-router-dom'
 import { currentBangkokMonth, monthBounds, ownerLabels, sourceLabels } from '../../app/ledger'
 import { queryKeys, useHousehold } from '../../app/providers'
 import type { BudgetOwner, PaymentSource } from '../../domain/expense'
-import { getSupabaseClient } from '../../lib/supabase'
 import { createCategoryRepository } from '../categories/categoryRepository'
 import { PageState } from '../dashboard/DashboardPage'
 import { ExpenseDraftForm, type ExpenseDraft } from './ExpenseDraftForm'
 import { ExpensePreview } from './ExpensePreview'
-import { createExpenseRepository, type ExpenseRecord, type ExpenseRepositoryClient } from './expenseRepository'
+import { createExpenseRepository, type ExpenseRecord } from './expenseRepository'
 import { MoneyAmount, requestExchangeRate, useDisplayCurrency } from '../../lib/displayCurrency'
 import { normalizeMerchant } from './duplicate'
 
 function useExpenseData() {
   const { householdId } = useHousehold()
-  const client = getSupabaseClient()
-  const repository = createExpenseRepository(client as unknown as ExpenseRepositoryClient, householdId)
+  const repository = createExpenseRepository()
   const expenses = useQuery({ queryKey: queryKeys.expenses(householdId), queryFn: () => repository.list() })
-  const categories = useQuery({ queryKey: queryKeys.categories(householdId), queryFn: () => createCategoryRepository(client, householdId).list() })
+  const categories = useQuery({ queryKey: queryKeys.categories(householdId), queryFn: () => createCategoryRepository().list() })
   return { householdId, repository, expenses, categories }
 }
 
@@ -47,7 +45,7 @@ export function ExpensesPage() {
   const update = useMutation({ mutationFn: async ({ id, draft }: { id: string; draft: ExpenseDraft }) => {
     const normalizedMerchant = normalizeMerchant(draft.merchant)
     const expense = await repository.update(id, { ...draft, normalizedMerchant, notes: draft.notes || null, ilsPerThb: null, usdPerThb: null })
-    if (rememberMerchant && normalizedMerchant) await createCategoryRepository(getSupabaseClient(), householdId).rememberMerchant(normalizedMerchant, draft.categoryId).catch(() => undefined)
+    if (rememberMerchant && normalizedMerchant) await createCategoryRepository().rememberMerchant(normalizedMerchant, draft.categoryId).catch(() => undefined)
     void requestExchangeRate(expense.expenseDate, expense.id).then(() => invalidateLedger(queryClient, householdId)).catch(() => undefined)
     return expense
   }, onSuccess: async () => { await invalidateLedger(queryClient, householdId); setEditing(null); setEditDraft(null); setRememberMerchant(false) } })

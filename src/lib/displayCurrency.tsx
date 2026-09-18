@@ -2,7 +2,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
 
-import { getSupabaseClient } from './supabase'
+import { apiRequest } from './api'
 
 export type DisplayCurrency = 'THB' | 'USD' | 'ILS'
 export type ExchangeRate = { rateDate: string; usdPerThb: number; ilsPerThb: number }
@@ -48,10 +48,8 @@ export function useDisplayCurrency(): DisplayCurrencyContextValue {
 }
 
 export async function requestExchangeRate(date: string, expenseId?: string): Promise<ExchangeRate> {
-  const client = getSupabaseClient()
-  const { data, error } = await client.functions.invoke('exchange-rate', { body: { date, ...(expenseId ? { expenseId } : {}) } })
-  if (error) throw new Error('Курс недоступен.')
-  const response = data as Partial<ExchangeRate> | null
+  const search = new URLSearchParams({ date, ...(expenseId ? { expenseId } : {}) })
+  const response = await apiRequest<Partial<ExchangeRate> | null>(`/api/rates?${search}`)
   if (!response || response.rateDate !== date || !Number.isFinite(response.usdPerThb) || !Number.isFinite(response.ilsPerThb)) throw new Error('Курс недоступен.')
   return response as ExchangeRate
 }
