@@ -89,6 +89,16 @@ h1 {
   outline-offset: 3px;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .add-expense-button {
+    transition: none;
+  }
+
+  .add-expense-button:active {
+    transform: none;
+  }
+}
+
 @media (max-width: 420px) {
   .app-shell {
     padding: 16px;

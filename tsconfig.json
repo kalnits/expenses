@@ -16,7 +16,7 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "composite": true,
-    "types": ["vitest/globals", "@testing-library/jest-dom"]
+    "types": ["@testing-library/jest-dom"]
   },
   "include": ["src", "vite.config.ts"]
 }

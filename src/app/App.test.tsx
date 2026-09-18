@@ -5,14 +5,14 @@ import { describe, expect, it } from 'vitest'
 import { App } from './App'
 
 describe('App', () => {
-  it('renders the expense tracker heading', () => {
+  it('renders the expense tracker controls', () => {
     render(<App />)
 
     expect(
       screen.getByRole('heading', { name: 'Расходы в Таиланде' }),
-    ).toBeInTheDocument()
+    ).toBeVisible()
     expect(
       screen.getByRole('button', { name: 'Добавить расход' }),
-    ).toBeInTheDocument()
+    ).toBeVisible()
   })
 })
