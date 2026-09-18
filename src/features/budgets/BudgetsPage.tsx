@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, type FormEvent } from 'react'
 
-import { currentBangkokMonth, formatThb, monthBounds, ownerLabels, previousMonth } from '../../app/ledger'
+import { currentBangkokMonth, monthBounds, ownerLabels, previousMonth } from '../../app/ledger'
 import { queryKeys, useHousehold } from '../../app/providers'
 import type { MonthlyBudget } from '../../domain/budget'
 import type { BudgetOwner } from '../../domain/expense'
@@ -10,6 +10,7 @@ import { createCategoryRepository, type CategoryRecord } from '../categories/cat
 import { PageState } from '../dashboard/DashboardPage'
 import { createExpenseRepository, type ExpenseRecord, type ExpenseRepositoryClient } from '../expenses/expenseRepository'
 import { createBudgetRepository, type BudgetRepositoryClient } from './budgetRepository'
+import { MoneyAmount } from '../../lib/displayCurrency'
 
 const owners: BudgetOwner[] = ['ilya', 'masha', 'mutual']
 
@@ -36,7 +37,7 @@ function BudgetEditor({ month, owner, initial, copied, categories, expenses, onS
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Проверьте суммы.') }
   }
 
-  return <form className="section-card stack" onSubmit={submit}>{copied ? <div className="notice">Показаны лимиты прошлого месяца. Они сохранятся только после нажатия «Сохранить».</div> : null}<div className="budget-total"><div><span>Потрачено</span><strong>{formatThb(spent)}</strong></div><label>Общий лимит<input inputMode="decimal" value={total} onChange={(event) => setTotal(event.target.value)} placeholder="0" /></label></div><div className="progress"><span style={{ width: `${initial?.totalLimitSatang ? Math.min(100, spent / initial.totalLimitSatang * 100) : 0}%` }} /></div><div className="category-limits"><h2>Лимиты по категориям</h2>{categories.map((category) => { const categorySpent = owned.filter((expense) => expense.categoryId === category.id).reduce((sum, expense) => sum + expense.amountSatang, 0); return <label key={category.id}><span>{category.name}<small>Потрачено {formatThb(categorySpent)}</small></span><span className="money-field"><input inputMode="decimal" value={limits[category.id] ?? ''} onChange={(event) => setLimits({ ...limits, [category.id]: event.target.value })} placeholder="0" /><i>฿</i></span></label> })}</div>{error ? <p className="error-text" role="alert">{error}</p> : null}<button className="button primary" type="submit" disabled={saving}>{saving ? 'Сохраняем…' : 'Сохранить бюджет'}</button></form>
+  return <form className="section-card stack" onSubmit={submit}>{copied ? <div className="notice">Показаны лимиты прошлого месяца. Они сохранятся только после нажатия «Сохранить».</div> : null}<div className="budget-total"><div><span>Потрачено</span><strong><MoneyAmount amountSatang={spent} date={`${month}-01`} /></strong></div><label>Общий лимит<input inputMode="decimal" value={total} onChange={(event) => setTotal(event.target.value)} placeholder="0" /></label></div><div className="progress"><span style={{ width: `${initial?.totalLimitSatang ? Math.min(100, spent / initial.totalLimitSatang * 100) : 0}%` }} /></div><div className="category-limits"><h2>Лимиты по категориям</h2>{categories.map((category) => { const categorySpent = owned.filter((expense) => expense.categoryId === category.id).reduce((sum, expense) => sum + expense.amountSatang, 0); return <label key={category.id}><span>{category.name}<small>Потрачено <MoneyAmount amountSatang={categorySpent} date={`${month}-01`} /></small></span><span className="money-field"><input inputMode="decimal" value={limits[category.id] ?? ''} onChange={(event) => setLimits({ ...limits, [category.id]: event.target.value })} placeholder="0" /><i>฿</i></span></label> })}</div>{error ? <p className="error-text" role="alert">{error}</p> : null}<button className="button primary" type="submit" disabled={saving}>{saving ? 'Сохраняем…' : 'Сохранить бюджет'}</button></form>
 }
 
 export function BudgetsPage() {

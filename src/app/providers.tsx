@@ -6,6 +6,7 @@ import { BrowserRouter } from 'react-router-dom'
 import { AuthGate } from '../features/auth/AuthGate'
 import { getCurrentMembership, type HouseholdMembership } from '../features/auth/householdRepository'
 import { getSupabaseClient } from '../lib/supabase'
+import { DisplayCurrencyProvider } from '../lib/displayCurrency'
 
 type HouseholdContextValue = HouseholdMembership
 
@@ -71,7 +72,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <AuthGate client={client}>
-          <HouseholdProvider>{children}</HouseholdProvider>
+          <HouseholdProvider><DisplayCurrencyProvider>{children}</DisplayCurrencyProvider></HouseholdProvider>
         </AuthGate>
       </BrowserRouter>
     </QueryClientProvider>

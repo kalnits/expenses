@@ -33,9 +33,9 @@ export function calculateDebt(expenses: readonly ExpenseRecord[], settlements: r
   return fromExpenses + fromSettlements
 }
 
-export function debtSentence(balance: number): string {
+export function debtSentence(balance: number, format: (amountSatang: number) => string = formatThb): string {
   if (balance === 0) return 'Сейчас никто никому не должен.'
   return balance > 0
-    ? `Маша должна Илье ${formatThb(balance)}.`
-    : `Илья должен Маше ${formatThb(Math.abs(balance))}.`
+    ? `Маша должна Илье ${format(balance)}.`
+    : `Илья должен Маше ${format(Math.abs(balance))}.`
 }

@@ -28,6 +28,9 @@ h2 { margin-bottom: 8px; color: var(--ink); font-size: 1.2rem; }
 p { color: var(--muted); line-height: 1.55; }
 
 .app-shell { min-height: 100vh; padding-bottom: calc(78px + env(safe-area-inset-bottom)); }
+.currency-shell { display: flex; width: min(100%, 1080px); justify-content: flex-end; margin: 0 auto; padding: 12px clamp(14px, 4vw, 48px) 0; }
+.currency-selector { width: 145px; font-size: .72rem; }
+.currency-selector select { min-height: 38px; padding-block: 6px; }
 .content { width: min(100%, 1080px); min-height: calc(100vh - 80px); margin: 0 auto; }
 .page { padding: clamp(20px, 4vw, 48px); }
 .page.narrow { width: min(100%, 680px); margin: 0 auto; }
