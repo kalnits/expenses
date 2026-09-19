@@ -30,6 +30,29 @@ Allow each monthly household or personal budget to be created in THB or NIS whil
 - Preserve the current routes and budget ownership model.
 - Copying the previous month's limits also copies its currency.
 
+## Initial mutual budget
+
+The migration creates an ILS mutual budget for the current Bangkok month with a 10,000 ₪ total and these active category limits:
+
+- Жильё — 2,800 ₪
+- Коммуналка + интернет — 400 ₪
+- Байк — 500 ₪
+- Бензин — 150 ₪
+- Продукты домой — 1,000 ₪
+- Кафе / рестораны / доставка — 1,300 ₪
+- Кофе — 350 ₪
+- 7-Eleven / снеки / напитки — 400 ₪
+- Спорт+хобби — 1,200 ₪
+- Массажи / recovery — 300 ₪
+- Развлечения / активности — 500 ₪
+- Grab / такси — 150 ₪
+- SIM — 100 ₪
+- Быт / laundry — 250 ₪
+- Страховки — 350 ₪
+- Буфер — 250 ₪
+
+The original generic seed categories become inactive so historical expenses remain readable without offering duplicate categories for new expenses.
+
 ## Validation
 
 - Currency must be `THB` or `ILS`.
