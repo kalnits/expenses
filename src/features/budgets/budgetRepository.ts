@@ -1,12 +1,14 @@
 import { z } from 'zod'
 
 import type { MonthlyBudget } from '../../domain/budget'
+import type { BudgetCurrency } from '../../domain/budget'
 import type { BudgetOwner } from '../../domain/expense'
 import { apiJson, apiRequest } from '../../lib/api'
 
 const budgetSchema = z.object({
   month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
   owner: z.enum(['ilya', 'masha', 'mutual']),
+  currency: z.enum(['THB', 'ILS']).default('THB'),
   totalLimitSatang: z.number().int().nonnegative(),
   categoryLimits: z.array(z.object({
     categoryId: z.string(),
@@ -17,6 +19,7 @@ const budgetSchema = z.object({
 export interface MonthlyBudgetInput {
   month: string
   owner: BudgetOwner
+  currency: BudgetCurrency
   totalLimitSatang: number
 }
 

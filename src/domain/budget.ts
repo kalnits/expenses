@@ -1,5 +1,7 @@
 import type { BudgetOwner } from './expense'
 
+export type BudgetCurrency = 'THB' | 'ILS'
+
 export interface CategoryLimit {
   categoryId: string
   limitSatang: number
@@ -8,6 +10,7 @@ export interface CategoryLimit {
 export interface MonthlyBudget {
   month: string
   owner: BudgetOwner
+  currency: BudgetCurrency
   totalLimitSatang: number
   categoryLimits: CategoryLimit[]
 }
@@ -43,9 +46,17 @@ export function copyLimits(previous: MonthlyBudget, nextMonth: string): MonthlyB
   return {
     month: nextMonth,
     owner: previous.owner,
+    currency: previous.currency,
     totalLimitSatang: previous.totalLimitSatang,
     categoryLimits: previous.categoryLimits.map((limit) => ({ ...limit })),
   }
+}
+
+export function expenseAmountInBudgetMinor(amountSatang: number, currency: BudgetCurrency, ilsPerThb?: number | null): number | null {
+  if (currency === 'THB') return amountSatang
+  return typeof ilsPerThb === 'number' && Number.isFinite(ilsPerThb) && ilsPerThb > 0
+    ? Math.round(amountSatang * ilsPerThb)
+    : null
 }
 
 export function spentByCategory(
@@ -70,6 +81,7 @@ export function spentByCategory(
 function validateBudget(budget: MonthlyBudget): void {
   validateMonth(budget.month)
   validateOwner(budget.owner)
+  if (!['THB', 'ILS'].includes(budget.currency)) throw new TypeError('Budget currency must be THB or ILS.')
   validateSatangLimit(budget.totalLimitSatang)
 
   for (const limit of budget.categoryLimits) {

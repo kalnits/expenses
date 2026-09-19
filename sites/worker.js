@@ -10,6 +10,7 @@ const JSON_HEADERS = {
 }
 const PEOPLE = new Set(['ilya', 'masha'])
 const OWNERS = new Set(['ilya', 'masha', 'mutual'])
+const BUDGET_CURRENCIES = new Set(['THB', 'ILS'])
 const CAPTURE_METHODS = new Set(['manual', 'text', 'voice', 'receipt'])
 const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS categories (
@@ -40,6 +41,7 @@ const SCHEMA_STATEMENTS = [
     household_id TEXT NOT NULL,
     month TEXT NOT NULL CHECK (length(month) = 10 AND substr(month, 9, 2) = '01'),
     owner TEXT NOT NULL CHECK (owner IN ('ilya', 'masha', 'mutual')),
+    currency TEXT NOT NULL DEFAULT 'THB' CHECK (currency IN ('THB', 'ILS')),
     total_limit_satang INTEGER NOT NULL CHECK (total_limit_satang >= 0),
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
@@ -103,14 +105,22 @@ const SCHEMA_STATEMENTS = [
     fetched_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
   )`,
   `INSERT OR IGNORE INTO categories (id, household_id, name, normalized_name) VALUES
-    ('category-groceries', 'thailand-household', 'Продукты', 'продукты'),
-    ('category-restaurants', 'thailand-household', 'Кафе и рестораны', 'кафе и рестораны'),
-    ('category-transport', 'thailand-household', 'Транспорт', 'транспорт'),
-    ('category-home', 'thailand-household', 'Дом', 'дом'),
-    ('category-health', 'thailand-household', 'Здоровье', 'здоровье'),
-    ('category-connectivity', 'thailand-household', 'Связь', 'связь'),
-    ('category-entertainment', 'thailand-household', 'Развлечения', 'развлечения'),
-    ('category-other', 'thailand-household', 'Прочее', 'прочее')`,
+    ('category-housing', 'thailand-household', 'Жильё', 'жильё'),
+    ('category-utilities', 'thailand-household', 'Коммуналка + интернет', 'коммуналка + интернет'),
+    ('category-bike', 'thailand-household', 'Байк', 'байк'),
+    ('category-fuel', 'thailand-household', 'Бензин', 'бензин'),
+    ('category-home-groceries', 'thailand-household', 'Продукты домой', 'продукты домой'),
+    ('category-food-out', 'thailand-household', 'Кафе / рестораны / доставка', 'кафе / рестораны / доставка'),
+    ('category-coffee', 'thailand-household', 'Кофе', 'кофе'),
+    ('category-convenience', 'thailand-household', '7-Eleven / снеки / напитки', '7-eleven / снеки / напитки'),
+    ('category-sport-hobbies', 'thailand-household', 'Спорт+хобби', 'спорт+хобби'),
+    ('category-recovery', 'thailand-household', 'Массажи / recovery', 'массажи / recovery'),
+    ('category-activities', 'thailand-household', 'Развлечения / активности', 'развлечения / активности'),
+    ('category-taxi', 'thailand-household', 'Grab / такси', 'grab / такси'),
+    ('category-sim', 'thailand-household', 'SIM', 'sim'),
+    ('category-household', 'thailand-household', 'Быт / laundry', 'быт / laundry'),
+    ('category-insurance', 'thailand-household', 'Страховки', 'страховки'),
+    ('category-buffer', 'thailand-household', 'Буфер', 'буфер')`,
   'PRAGMA optimize',
 ]
 
@@ -459,6 +469,8 @@ function budgetId(month, owner) {
 function validateBudget(body) {
   const month = requireMonth(body.month)
   if (!OWNERS.has(body.owner)) throw new HttpError(400, 'Выберите владельца бюджета.')
+  const currency = body.currency ?? 'THB'
+  if (!BUDGET_CURRENCIES.has(currency)) throw new HttpError(400, 'Выберите валюту бюджета.')
   const totalLimitSatang = requiredInteger(body.totalLimitSatang, 'Проверьте общий лимит.')
   const categoryLimits = Array.isArray(body.categoryLimits) ? body.categoryLimits.map((limit) => ({
     categoryId: requiredString(limit?.categoryId, 'Выберите категорию лимита.'),
@@ -467,13 +479,13 @@ function validateBudget(body) {
   if (new Set(categoryLimits.map((limit) => limit.categoryId)).size !== categoryLimits.length) {
     throw new HttpError(400, 'Категории лимитов не должны повторяться.')
   }
-  return { categoryLimits, month, owner: body.owner, totalLimitSatang }
+  return { categoryLimits, currency, month, owner: body.owner, totalLimitSatang }
 }
 
 async function handleBudgets(request, db) {
   if (request.method === 'GET') {
     const [budgetResult, limitResult] = await Promise.all([
-      db.prepare(`SELECT id, month, owner, total_limit_satang FROM monthly_budgets
+      db.prepare(`SELECT id, month, owner, currency, total_limit_satang FROM monthly_budgets
         WHERE household_id = ? ORDER BY month, owner`).bind(HOUSEHOLD_ID).all(),
       db.prepare(`SELECT l.monthly_budget_id, l.category_id, l.limit_satang
         FROM budget_category_limits l JOIN monthly_budgets b ON b.id = l.monthly_budget_id
@@ -482,6 +494,7 @@ async function handleBudgets(request, db) {
     return json(budgetResult.results.map((row) => ({
       month: row.month.slice(0, 7),
       owner: row.owner,
+      currency: row.currency,
       totalLimitSatang: row.total_limit_satang,
       categoryLimits: limitResult.results.filter((limit) => limit.monthly_budget_id === row.id)
         .map((limit) => ({ categoryId: limit.category_id, limitSatang: limit.limit_satang })),
@@ -494,10 +507,10 @@ async function handleBudgets(request, db) {
     const now = new Date().toISOString()
     const statements = [
       db.prepare(`INSERT INTO monthly_budgets
-        (id, household_id, month, owner, total_limit_satang) VALUES (?, ?, ?, ?, ?)
+        (id, household_id, month, owner, currency, total_limit_satang) VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT (household_id, month, owner) DO UPDATE SET
-          total_limit_satang = excluded.total_limit_satang, updated_at = ?`)
-        .bind(id, HOUSEHOLD_ID, budget.month, budget.owner, budget.totalLimitSatang, now),
+          currency = excluded.currency, total_limit_satang = excluded.total_limit_satang, updated_at = ?`)
+        .bind(id, HOUSEHOLD_ID, budget.month, budget.owner, budget.currency, budget.totalLimitSatang, now),
       db.prepare('DELETE FROM budget_category_limits WHERE monthly_budget_id = ?').bind(id),
       ...budget.categoryLimits.map((limit) => db.prepare(`INSERT INTO budget_category_limits
         (monthly_budget_id, category_id, limit_satang) VALUES (?, ?, ?)`)

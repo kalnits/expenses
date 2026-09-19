@@ -138,6 +138,10 @@ legend { margin-bottom: 8px; color: #354c42; font-size: .88rem; font-weight: 750
 .budget-total > div { display: grid; gap: 4px; }
 .budget-total > div span { color: var(--muted); font-size: .8rem; }
 .budget-total > div strong { font-size: 1.65rem; }
+.budget-currency { display: grid; grid-template-columns: 1fr minmax(180px, 240px); align-items: center; gap: 7px 16px; }
+.budget-currency > span { font-weight: 800; }
+.budget-currency > small { grid-column: 1 / -1; color: var(--muted); }
+.budget-currency .tabs { grid-template-columns: 1fr 1fr; }
 .category-limits { display: grid; gap: 12px; margin-top: 10px; }
 .category-limits > label { display: grid; grid-template-columns: 1fr 140px; align-items: center; gap: 16px; }
 .category-limits label > span:first-child { display: grid; gap: 2px; }
@@ -177,6 +181,8 @@ legend { margin-bottom: 8px; color: #354c42; font-size: .88rem; font-weight: 750
 
 @media (max-width: 480px) {
   .field-grid, .budget-total { grid-template-columns: 1fr; }
+  .budget-currency { grid-template-columns: 1fr; }
+  .budget-currency > small { grid-column: 1; }
   .page-header { flex-wrap: wrap; }
   .month-control { width: 100%; }
   .section-card, .filter-card, .preview-card, .form-card { border-radius: 16px; }
@@ -213,6 +219,7 @@ legend { margin-bottom: 8px; color: #354c42; font-size: .88rem; font-weight: 750
 .hero-footer { position: relative; display: flex; justify-content: space-between; gap: 20px; margin-top: 14px; color: #cce7df; font-size: .82rem; }
 .hero-footer strong { display: block; margin-bottom: 3px; color: #fff; font-size: 1.02rem; font-variant-numeric: tabular-nums; }
 .hero-footer > div:last-child { text-align: right; }
+.hero-warning { position: relative; margin: 12px 0 0; color: #ffd7a3; font-size: .78rem; }
 .total-strip,
 .debt-strip { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 20px; background: rgb(255 255 255 / 76%); box-shadow: 0 10px 35px rgb(26 55 52 / 5%); }
 .total-strip span,

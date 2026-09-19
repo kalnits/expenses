@@ -19,6 +19,7 @@ describe('copyLimits', () => {
     const september: MonthlyBudget = {
       month: '2026-09',
       owner: 'mutual',
+      currency: 'ILS',
       totalLimitSatang: 3_000_000,
       categoryLimits: [{ categoryId: 'food', limitSatang: 900_000 }],
     }
@@ -28,6 +29,7 @@ describe('copyLimits', () => {
     expect(october).toEqual({
       month: '2026-10',
       owner: 'mutual',
+      currency: 'ILS',
       totalLimitSatang: 3_000_000,
       categoryLimits: [{ categoryId: 'food', limitSatang: 900_000 }],
     })
@@ -39,6 +41,7 @@ describe('copyLimits', () => {
     const valid: MonthlyBudget = {
       month: '2026-09',
       owner: 'mutual',
+      currency: 'THB',
       totalLimitSatang: 1,
       categoryLimits: [],
     }

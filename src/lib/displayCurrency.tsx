@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
 
 import { apiRequest } from './api'
+import type { BudgetCurrency } from '../domain/budget'
 
 export type DisplayCurrency = 'THB' | 'USD' | 'ILS'
 export type ExchangeRate = { rateDate: string; usdPerThb: number; ilsPerThb: number }
@@ -15,7 +16,7 @@ function initialCurrency(): DisplayCurrency {
   return currencies.includes(stored as DisplayCurrency) ? stored as DisplayCurrency : 'THB'
 }
 
-function formatCurrency(value: number, currency: DisplayCurrency): string {
+export function formatCurrency(value: number, currency: DisplayCurrency): string {
   return new Intl.NumberFormat('ru-RU', { style: 'currency', currency, minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value)
 }
 
@@ -23,6 +24,7 @@ type DisplayCurrencyContextValue = {
   currency: DisplayCurrency
   setCurrency: (currency: DisplayCurrency) => void
   format: (amountSatang: number, rate?: Pick<ExchangeRate, 'usdPerThb' | 'ilsPerThb'> | { usdPerThb: number | null; ilsPerThb: number | null } | null) => string
+  formatBudget: (amountMinor: number, budgetCurrency: BudgetCurrency, rate?: Pick<ExchangeRate, 'usdPerThb' | 'ilsPerThb'> | null) => string
 }
 
 const DisplayCurrencyContext = createContext<DisplayCurrencyContextValue | null>(null)
@@ -36,6 +38,14 @@ export function DisplayCurrencyProvider({ children }: { children: ReactNode }) {
       if (currency === 'THB') return formatCurrency(amountSatang / 100, 'THB')
       const multiplier = currency === 'USD' ? rate?.usdPerThb : rate?.ilsPerThb
       return multiplier ? formatCurrency(amountSatang / 100 * multiplier, currency) : 'Курс недоступен'
+    },
+    formatBudget(amountMinor, budgetCurrency, rate) {
+      if (budgetCurrency === currency) return formatCurrency(amountMinor / 100, currency)
+      if (!rate?.ilsPerThb) return 'Курс недоступен'
+      const thb = budgetCurrency === 'ILS' ? amountMinor / 100 / rate.ilsPerThb : amountMinor / 100
+      if (currency === 'THB') return formatCurrency(thb, 'THB')
+      const multiplier = currency === 'USD' ? rate.usdPerThb : rate.ilsPerThb
+      return multiplier ? formatCurrency(thb * multiplier, currency) : 'Курс недоступен'
     },
   }), [currency])
   return <DisplayCurrencyContext.Provider value={value}>{children}</DisplayCurrencyContext.Provider>
@@ -64,6 +74,16 @@ export function MoneyAmount({ amountSatang, date, rate, className }: { amountSat
   const requested = useExchangeRate(date, rate)
   const embedded = rate?.usdPerThb && rate.ilsPerThb ? rate : undefined
   return <span className={className}>{format(amountSatang, embedded ?? requested.data)}</span>
+}
+
+export function NativeMoneyAmount({ amountMinor, currency, className }: { amountMinor: number; currency: BudgetCurrency; className?: string }) {
+  return <span className={className}>{formatCurrency(amountMinor / 100, currency)}</span>
+}
+
+export function BudgetMoneyAmount({ amountMinor, budgetCurrency, date, className }: { amountMinor: number; budgetCurrency: BudgetCurrency; date: string; className?: string }) {
+  const { formatBudget } = useDisplayCurrency()
+  const rate = useExchangeRate(date)
+  return <span className={className}>{formatBudget(amountMinor, budgetCurrency, rate.data)}</span>
 }
 
 export function CurrencySelector() {

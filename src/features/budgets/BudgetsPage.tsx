@@ -3,13 +3,13 @@ import { useState, type FormEvent } from 'react'
 
 import { currentBangkokMonth, monthBounds, ownerLabels, previousMonth } from '../../app/ledger'
 import { queryKeys, useHousehold } from '../../app/providers'
-import type { MonthlyBudget } from '../../domain/budget'
+import { expenseAmountInBudgetMinor, type BudgetCurrency, type MonthlyBudget } from '../../domain/budget'
 import type { BudgetOwner } from '../../domain/expense'
 import { createCategoryRepository, type CategoryRecord } from '../categories/categoryRepository'
 import { PageState } from '../dashboard/DashboardPage'
 import { createExpenseRepository, type ExpenseRecord } from '../expenses/expenseRepository'
 import { createBudgetRepository } from './budgetRepository'
-import { MoneyAmount } from '../../lib/displayCurrency'
+import { NativeMoneyAmount } from '../../lib/displayCurrency'
 
 const owners: BudgetOwner[] = ['mutual', 'ilya', 'masha']
 
@@ -22,21 +22,42 @@ function parseLimit(value: string): number {
 }
 
 function BudgetEditor({ month, owner, initial, copied, categories, expenses, onSave, saving }: { month: string; owner: BudgetOwner; initial?: MonthlyBudget; copied: boolean; categories: CategoryRecord[]; expenses: ExpenseRecord[]; onSave: (budget: MonthlyBudget) => void; saving: boolean }) {
+  const [currency, setCurrency] = useState<BudgetCurrency>(initial?.currency ?? 'THB')
   const [total, setTotal] = useState(initial?.totalLimitSatang ? String(initial.totalLimitSatang / 100) : '')
   const [limits, setLimits] = useState<Record<string, string>>(() => Object.fromEntries((initial?.categoryLimits ?? []).map((limit) => [limit.categoryId, String(limit.limitSatang / 100)])))
   const [error, setError] = useState<string | null>(null)
   const bounds = monthBounds(month)
   const owned = expenses.filter((expense) => expense.owner === owner && expense.expenseDate >= bounds.start && expense.expenseDate < bounds.end)
-  const spent = owned.reduce((sum, item) => sum + item.amountSatang, 0)
+  const converted = owned.map((expense) => expenseAmountInBudgetMinor(expense.amountSatang, currency, expense.ilsPerThb))
+  const spent = converted.reduce<number>((sum, amount) => sum + (amount ?? 0), 0)
+  const missingRates = converted.filter((amount) => amount === null).length
+  const enteredTotal = Math.round((Number(total.replace(',', '.')) || 0) * 100)
+  const symbol = currency === 'ILS' ? '₪' : '฿'
+
+  function changeCurrency(next: BudgetCurrency) {
+    if (next === currency) return
+    setCurrency(next)
+    setTotal('')
+    setLimits({})
+    setError(null)
+  }
 
   function submit(event: FormEvent) {
     event.preventDefault()
     try {
-      onSave({ month, owner, totalLimitSatang: parseLimit(total), categoryLimits: categories.map((category) => ({ categoryId: category.id, limitSatang: parseLimit(limits[category.id] ?? '') })).filter((limit) => limit.limitSatang > 0) })
+      onSave({ month, owner, currency, totalLimitSatang: parseLimit(total), categoryLimits: categories.map((category) => ({ categoryId: category.id, limitSatang: parseLimit(limits[category.id] ?? '') })).filter((limit) => limit.limitSatang > 0) })
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Проверьте суммы.') }
   }
 
-  return <form className="section-card stack" onSubmit={submit}>{copied ? <div className="notice">Показаны лимиты прошлого месяца. Они сохранятся только после нажатия «Сохранить».</div> : null}<div className="budget-total"><div><span>Потрачено</span><strong><MoneyAmount amountSatang={spent} date={`${month}-01`} /></strong></div><label>Общий лимит<input inputMode="decimal" value={total} onChange={(event) => setTotal(event.target.value)} placeholder="0" /></label></div><div className="progress"><span style={{ width: `${initial?.totalLimitSatang ? Math.min(100, spent / initial.totalLimitSatang * 100) : 0}%` }} /></div><div className="category-limits"><h2>Лимиты по категориям</h2>{categories.map((category) => { const categorySpent = owned.filter((expense) => expense.categoryId === category.id).reduce((sum, expense) => sum + expense.amountSatang, 0); return <label key={category.id}><span>{category.name}<small>Потрачено <MoneyAmount amountSatang={categorySpent} date={`${month}-01`} /></small></span><span className="money-field"><input inputMode="decimal" value={limits[category.id] ?? ''} onChange={(event) => setLimits({ ...limits, [category.id]: event.target.value })} placeholder="0" /><i>฿</i></span></label> })}</div>{error ? <p className="error-text" role="alert">{error}</p> : null}<button className="button primary" type="submit" disabled={saving}>{saving ? 'Сохраняем…' : 'Сохранить бюджет'}</button></form>
+  return <form className="section-card stack" onSubmit={submit}>
+    {copied ? <div className="notice">Показаны лимиты прошлого месяца. Они сохранятся только после нажатия «Сохранить».</div> : null}
+    <div className="budget-currency" aria-label="Валюта бюджета"><span>Валюта бюджета</span><div className="tabs">{(['ILS', 'THB'] as BudgetCurrency[]).map((item) => <button key={item} type="button" aria-selected={currency === item} onClick={() => changeCurrency(item)}>{item === 'ILS' ? '₪ NIS' : '฿ THB'}</button>)}</div><small>При смене валюты лимиты очищаются.</small></div>
+    <div className="budget-total"><div><span>Потрачено</span><strong><NativeMoneyAmount amountMinor={spent} currency={currency} /></strong></div><label>Общий лимит ({symbol})<input inputMode="decimal" value={total} onChange={(event) => setTotal(event.target.value)} placeholder="0" /></label></div>
+    <div className="progress"><span style={{ width: `${enteredTotal ? Math.min(100, spent / enteredTotal * 100) : 0}%` }} /></div>
+    {missingRates ? <p className="inline-warning">Без курса: {missingRates} расходов. Сравнение пока неполное.</p> : null}
+    <div className="category-limits"><h2>Лимиты по категориям</h2>{categories.map((category) => { const categorySpent = owned.filter((expense) => expense.categoryId === category.id).reduce((sum, expense) => sum + (expenseAmountInBudgetMinor(expense.amountSatang, currency, expense.ilsPerThb) ?? 0), 0); return <label key={category.id}><span>{category.name}<small>Потрачено <NativeMoneyAmount amountMinor={categorySpent} currency={currency} /></small></span><span className="money-field"><input inputMode="decimal" value={limits[category.id] ?? ''} onChange={(event) => setLimits({ ...limits, [category.id]: event.target.value })} placeholder="0" /><i>{symbol}</i></span></label> })}</div>
+    {error ? <p className="error-text" role="alert">{error}</p> : null}<button className="button primary" type="submit" disabled={saving}>{saving ? 'Сохраняем…' : 'Сохранить бюджет'}</button>
+  </form>
 }
 
 export function BudgetsPage() {
