@@ -7,13 +7,15 @@ const draftSchema = z.object({
   owner: z.enum(['ilya', 'masha', 'mutual']), paidFrom: z.enum(['ilya', 'masha', 'mutual']), ilyaShareBps: z.number().int().min(0).max(10000),
 }).strict()
 const confidenceSchema = z.object({ amount: z.number().min(0).max(1), merchant: z.number().min(0).max(1), date: z.number().min(0).max(1), category: z.number().min(0).max(1), owner: z.number().min(0).max(1), paidFrom: z.number().min(0).max(1) }).strict()
-const resultSchema = z.object({
-  draft: draftSchema, confidence: confidenceSchema, transcript: z.string().optional(),
+const capturedExpenseSchema = z.object({
+  draft: draftSchema, confidence: confidenceSchema,
   categoryEvidence: z.object({ categoryId: z.string(), source: z.enum(['model', 'merchant_rule', 'none']) }).strict().optional(), warnings: z.array(z.string()),
 }).strict()
+const resultSchema = z.object({ expenses: z.array(capturedExpenseSchema).min(1).max(12), transcript: z.string().optional() }).strict()
 
 export type CaptureConfidence = z.infer<typeof confidenceSchema>
-export type CaptureResult = Omit<z.infer<typeof resultSchema>, 'draft'> & { draft: ExpenseDraft }
+export type CapturedExpense = Omit<z.infer<typeof capturedExpenseSchema>, 'draft'> & { draft: ExpenseDraft }
+export type CaptureResult = { expenses: CapturedExpense[]; transcript?: string }
 
 export class CaptureError extends Error {
   transcript?: string

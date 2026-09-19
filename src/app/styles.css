@@ -291,6 +291,7 @@ legend { margin-bottom: 8px; color: #354c42; font-size: .88rem; font-weight: 750
 .composer-icon,
 .composer-send { display: grid; width: 42px; height: 42px; place-items: center; border: 0; border-radius: 50%; cursor: pointer; }
 .composer-icon { color: var(--teal); background: #edf6f3; }
+.mic-button { touch-action: none; user-select: none; -webkit-user-select: none; }
 .composer-icon.recording { color: #fff; background: #e85757; animation: record-pulse 1.25s infinite; }
 .composer-send { color: #092f2b; background: var(--mint); }
 .composer-icon:disabled,

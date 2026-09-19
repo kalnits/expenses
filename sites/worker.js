@@ -2,7 +2,7 @@
 
 const HOUSEHOLD_ID = 'thailand-household'
 const DEFAULT_ILYA_EMAIL = 'kalnit2308@gmail.com'
-const DEFAULT_STRUCTURED_MODEL = 'gpt-6-astra'
+const DEFAULT_STRUCTURED_MODEL = 'gpt-4.1-mini'
 const DEFAULT_TRANSCRIBE_MODEL = 'gpt-4o-mini-transcribe'
 const JSON_HEADERS = {
   'Cache-Control': 'no-store',
@@ -637,7 +637,7 @@ async function openAI(env, path, init) {
   return response
 }
 
-const CAPTURE_SCHEMA = {
+const EXPENSE_CAPTURE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   required: ['amountSatang', 'expenseDate', 'merchant', 'notes', 'categoryId', 'owner', 'paidFrom', 'ilyaShareBps', 'confidence', 'warnings'],
@@ -660,6 +660,13 @@ const CAPTURE_SCHEMA = {
   },
 }
 
+const CAPTURE_SCHEMA = {
+  type: 'object', additionalProperties: false, required: ['expenses'],
+  properties: {
+    expenses: { type: 'array', minItems: 1, maxItems: 12, items: EXPENSE_CAPTURE_SCHEMA },
+  },
+}
+
 async function structuredResponse(env, content) {
   const response = await openAI(env, 'responses', {
     method: 'POST',
@@ -668,7 +675,7 @@ async function structuredResponse(env, content) {
       model: env.OPENAI_STRUCTURED_MODEL?.trim() || DEFAULT_STRUCTURED_MODEL,
       store: false,
       input: [{ role: 'user', content }],
-      text: { format: { type: 'json_schema', name: 'expense_capture', strict: true, schema: CAPTURE_SCHEMA } },
+      text: { format: { type: 'json_schema', name: 'expense_capture_batch', strict: true, schema: CAPTURE_SCHEMA } },
     }),
   })
   const body = await response.json()
@@ -688,7 +695,7 @@ function validConfidence(value) {
       typeof value[key] === 'number' && value[key] >= 0 && value[key] <= 1)
 }
 
-function normalizeCapture(value, categoryIds) {
+function normalizeCaptureItem(value, categoryIds) {
   if (!value || typeof value !== 'object' || !Number.isSafeInteger(value.amountSatang) ||
     value.amountSatang < 0 || !isExactDate(value.expenseDate) ||
     typeof value.merchant !== 'string' || typeof value.notes !== 'string' ||
@@ -715,29 +722,44 @@ function normalizeCapture(value, categoryIds) {
   }
 }
 
-async function extractExpense(env, db, content, transcript) {
+async function loadCaptureContext(db) {
   const [categoryResult, ruleResult] = await Promise.all([
     db.prepare(`SELECT id, name FROM categories WHERE household_id = ?
       AND is_active = 1 ORDER BY name`).bind(HOUSEHOLD_ID).all(),
     db.prepare(`SELECT normalized_merchant, category_id FROM merchant_rules
       WHERE household_id = ?`).bind(HOUSEHOLD_ID).all(),
   ])
+  return { categories: categoryResult.results, rules: ruleResult.results }
+}
+
+async function extractExpenses(env, context, content, transcript, receipt = false) {
   const today = new Intl.DateTimeFormat('en-CA', {
     day: '2-digit', month: '2-digit', timeZone: 'Asia/Bangkok', year: 'numeric',
   }).format(new Date())
-  const instructions = `Извлеки один расход. Валюта по умолчанию THB; сумму верни в сатангах (1 THB = 100), если другая валюта не указана явно — добавь предупреждение и не конвертируй. Сегодня в Asia/Bangkok: ${today}. Не выдумывай отсутствующие данные: строки оставляй пустыми, confidence ставь низкой. Для неизвестной даты используй ${today} и предупреждение. owner/paidFrom по умолчанию mutual с низкой уверенностью. Категории: ${JSON.stringify(categoryResult.results)}. categoryId только из списка либо пустая строка. Заметки не должны содержать чековые позиции. Верни только объект схемы.`
+  const mode = receipt
+    ? 'Это чек: верни ровно один расход по итоговой сумме; позиции используй только для названия и категории.'
+    : 'Выдели каждый отдельно названный платёж или покупку как отдельный расход. Не объединяй несколько сумм в одну. Верни от 1 до 12 расходов в исходном порядке.'
+  const instructions = `${mode} Валюта по умолчанию THB; сумму верни в сатангах (1 THB = 100), если другая валюта не указана явно — добавь предупреждение и не конвертируй. Сегодня в Asia/Bangkok: ${today}. merchant — короткое понятное название расхода по-русски: место, если оно названо, иначе предмет или цель расхода; merchant никогда не должен быть пустым. Не выдумывай остальные отсутствующие данные: confidence ставь низкой. Для неизвестной даты используй ${today} и предупреждение. owner/paidFrom по умолчанию mutual с низкой уверенностью. Категории: ${JSON.stringify(context.categories)}. categoryId только из списка либо пустая строка. Заметки не должны содержать чековые позиции. Верни только объект схемы.`
   const raw = await structuredResponse(env, [{ type: 'input_text', text: instructions }, ...content])
-  const result = normalizeCapture(raw, new Set(categoryResult.results.map((category) => category.id)))
-  const merchant = normalizeMerchant(result.draft.merchant)
-  const rule = ruleResult.results.find((candidate) => candidate.normalized_merchant === merchant)
-  const detectedCategory = result.draft.categoryId
-  if (rule && categoryResult.results.some((category) => category.id === rule.category_id)) {
-    result.draft.categoryId = rule.category_id
-    result.confidence.category = 1
-    result.categoryEvidence = { categoryId: rule.category_id, source: 'merchant_rule' }
-  } else {
-    result.categoryEvidence = { categoryId: detectedCategory, source: detectedCategory ? 'model' : 'none' }
-  }
+  if (!Array.isArray(raw?.expenses) || raw.expenses.length === 0) throw new HttpError(502, 'Сервис не смог распознать расходы.')
+  const categoryIds = new Set(context.categories.map((category) => category.id))
+  const expenses = raw.expenses.map((value) => {
+    const result = normalizeCaptureItem(value, categoryIds)
+    const detectedCategory = result.draft.categoryId
+    const category = context.categories.find((candidate) => candidate.id === detectedCategory)
+    if (!result.draft.merchant) result.draft.merchant = category?.name || 'Расход'
+    const merchant = normalizeMerchant(result.draft.merchant)
+    const rule = context.rules.find((candidate) => candidate.normalized_merchant === merchant)
+    if (rule && categoryIds.has(rule.category_id)) {
+      result.draft.categoryId = rule.category_id
+      result.confidence.category = 1
+      result.categoryEvidence = { categoryId: rule.category_id, source: 'merchant_rule' }
+    } else {
+      result.categoryEvidence = { categoryId: detectedCategory, source: detectedCategory ? 'model' : 'none' }
+    }
+    return result
+  })
+  const result = { expenses }
   if (transcript) result.transcript = transcript
   return result
 }
@@ -768,9 +790,9 @@ async function handleCapture(request, env, db, url) {
   if (request.method !== 'POST') throw new HttpError(405, 'Метод не поддерживается.')
   const kind = url.pathname.slice('/api/capture/'.length)
   if (kind === 'text') {
-    const body = await readJson(request)
+    const [body, context] = await Promise.all([readJson(request), loadCaptureContext(db)])
     const text = requiredString(body.text, 'Введите описание расхода длиной до 4000 символов.', 4000)
-    return json(await extractExpense(env, db, [{ type: 'input_text', text }]))
+    return json(await extractExpenses(env, context, [{ type: 'input_text', text }]))
   }
   if (kind === 'voice') {
     let transcript
@@ -781,8 +803,9 @@ async function handleCapture(request, env, db, url) {
       if (!(file instanceof File) || !allowed.has(file.type) || file.size <= 0 || file.size > 15 * 1024 * 1024) {
         throw new HttpError(400, 'Запись должна быть WebM, MP4, MP3 или WAV размером до 15 МБ.')
       }
-      transcript = await transcribe(env, file)
-      return json(await extractExpense(env, db, [{ type: 'input_text', text: transcript }], transcript))
+      const [nextTranscript, context] = await Promise.all([transcribe(env, file), loadCaptureContext(db)])
+      transcript = nextTranscript
+      return json(await extractExpenses(env, context, [{ type: 'input_text', text: transcript }], transcript))
     } catch (error) {
       if (transcript && error instanceof HttpError) error.extra = { ...error.extra, transcript }
       throw error
@@ -791,15 +814,16 @@ async function handleCapture(request, env, db, url) {
   if (kind === 'receipt') {
     const contentType = request.headers.get('content-type')?.split(';')[0].trim() || ''
     const allowed = new Set(['image/jpeg', 'image/png', 'image/webp'])
-    const bytes = new Uint8Array(await request.arrayBuffer())
+    const [buffer, context] = await Promise.all([request.arrayBuffer(), loadCaptureContext(db)])
+    const bytes = new Uint8Array(buffer)
     if (!allowed.has(contentType) || bytes.length === 0 || bytes.length > 10 * 1024 * 1024) {
       throw new HttpError(400, 'Фото должно быть JPEG, PNG или WebP размером до 10 МБ.')
     }
     const imageUrl = `data:${contentType};base64,${bytesToBase64(bytes)}`
-    return json(await extractExpense(env, db, [
+    return json(await extractExpenses(env, context, [
       { type: 'input_text', text: 'Распознай итоговую сумму, магазин/место и дату. Позиции используй только как подсказки для категории и не возвращай их.' },
       { type: 'input_image', image_url: imageUrl },
-    ]))
+    ], undefined, true))
   }
   throw new HttpError(404, 'Маршрут не найден.')
 }

@@ -13,11 +13,12 @@ interface Props {
   confidence?: CaptureConfidence
   draft: ExpenseDraft
   isSaving: boolean
+  label?: string
   onSave: (draft: ExpenseDraft) => void
   warnings?: string[]
 }
 
-export function ParsedExpenseCard({ categories, confidence, draft: initial, isSaving, onSave, warnings = [] }: Props) {
+export function ParsedExpenseCard({ categories, confidence, draft: initial, isSaving, label, onSave, warnings = [] }: Props) {
   const [draft, setDraft] = useState(initial)
   const [amount, setAmount] = useState(initial.amountSatang ? String(initial.amountSatang / 100) : '')
   const [expanded, setExpanded] = useState(false)
@@ -33,9 +34,9 @@ export function ParsedExpenseCard({ categories, confidence, draft: initial, isSa
   }
 
   return <form className="assistant-bubble parsed-card" onSubmit={submit}>
-    <div className="parsed-label"><span className="assistant-dot"><Check size={13} /></span><span>Готово к сохранению</span></div>
+    <div className="parsed-label"><span className="assistant-dot"><Check size={13} /></span><span>{label ?? 'Готово к сохранению'}</span></div>
     <div className={`parsed-amount${confidence && confidence.amount < .7 ? ' needs-check' : ''}`}><input aria-label="Сумма" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} /><span>฿</span></div>
-    <input className={confidence && confidence.merchant < .7 ? 'needs-check' : ''} aria-label="Магазин или место" value={draft.merchant} onChange={(event) => setDraft({ ...draft, merchant: event.target.value })} placeholder="Магазин или место" />
+    <input className={confidence && confidence.merchant < .7 ? 'needs-check' : ''} aria-label="Название расхода" value={draft.merchant} onChange={(event) => setDraft({ ...draft, merchant: event.target.value })} placeholder="Название расхода" />
     <div className="parsed-grid">
       <label className={confidence && confidence.category < .7 ? 'needs-check' : ''}><span>Категория</span><select value={draft.categoryId} onChange={(event) => setDraft({ ...draft, categoryId: event.target.value })}><option value="">Выберите</option>{categories.filter((category) => category.isActive).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
       <label className={confidence && confidence.date < .7 ? 'needs-check' : ''}><span>Дата</span><input type="date" value={draft.expenseDate} onChange={(event) => setDraft({ ...draft, expenseDate: event.target.value })} /></label>
