@@ -37,7 +37,7 @@ export const tables = {
   },
   expenses: {
     primaryKey: ['id'],
-    columns: ['id', 'household_id', 'amount_satang', 'capture_method', 'category_id', 'created_at', 'created_by', 'duplicate_confirmed', 'expense_date', 'ils_per_thb', 'ilya_share_bps', 'merchant', 'normalized_merchant', 'notes', 'owner', 'paid_from', 'usd_per_thb', 'updated_at'],
+    columns: ['id', 'household_id', 'amount_satang', 'capture_method', 'category_id', 'created_at', 'created_by', 'duplicate_confirmed', 'expense_date', 'ils_per_thb', 'ilya_share_bps', 'merchant', 'normalized_merchant', 'notes', 'owner', 'original_amount_minor', 'original_currency', 'paid_from', 'usd_per_thb', 'updated_at'],
   },
   settlements: {
     primaryKey: ['id'],

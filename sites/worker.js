@@ -11,6 +11,7 @@ const JSON_HEADERS = {
 const PEOPLE = new Set(['ilya', 'masha'])
 const OWNERS = new Set(['ilya', 'masha', 'mutual'])
 const BUDGET_CURRENCIES = new Set(['THB', 'ILS'])
+const EXPENSE_CURRENCIES = new Set(['THB', 'ILS', 'USD'])
 const CAPTURE_METHODS = new Set(['manual', 'text', 'voice', 'receipt'])
 const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS categories (
@@ -73,6 +74,8 @@ const SCHEMA_STATEMENTS = [
     capture_method TEXT NOT NULL DEFAULT 'manual' CHECK (capture_method IN ('manual', 'text', 'voice', 'receipt')),
     usd_per_thb REAL CHECK (usd_per_thb IS NULL OR usd_per_thb > 0),
     ils_per_thb REAL CHECK (ils_per_thb IS NULL OR ils_per_thb > 0),
+    original_currency TEXT NOT NULL DEFAULT 'THB' CHECK (original_currency IN ('THB', 'ILS', 'USD')),
+    original_amount_minor INTEGER NOT NULL CHECK (original_amount_minor > 0),
     duplicate_confirmed INTEGER NOT NULL DEFAULT 0 CHECK (duplicate_confirmed IN (0, 1)),
     created_by TEXT NOT NULL CHECK (length(trim(created_by)) > 0),
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
@@ -127,7 +130,7 @@ const SCHEMA_STATEMENTS = [
 const EXPENSE_SELECT = `SELECT id, household_id, amount_satang, capture_method,
   category_id, created_at, created_by, duplicate_confirmed, expense_date,
   ils_per_thb, ilya_share_bps, merchant, normalized_merchant, notes, owner,
-  paid_from, usd_per_thb FROM expenses`
+  original_amount_minor, original_currency, paid_from, usd_per_thb FROM expenses`
 
 let initialization
 
@@ -232,21 +235,22 @@ function normalizeMerchant(value) {
 }
 
 const CATEGORY_HINTS = [
-  { name: 'Спорт+хобби', terms: ['padel', 'paddle', 'падел', 'теннис', 'tournament', 'турнир', 'gym', 'fitness', 'спорт', 'йога', 'хобби'] },
-  { name: 'Кофе', terms: ['coffee', 'кофе', 'starbucks', 'amazon cafe'] },
-  { name: 'Массажи / recovery', terms: ['massage', 'массаж', 'recovery', 'spa', 'спа'] },
-  { name: 'Grab / такси', terms: ['taxi', 'такси', 'grab ride', 'bolt', 'indrive'] },
-  { name: '7-Eleven / снеки / напитки', terms: ['7 eleven', 'seven eleven', 'снеки', 'snack', 'напитки'] },
-  { name: 'Бензин', terms: ['fuel', 'petrol', 'gasoline', 'бензин', 'заправка'] },
-  { name: 'SIM', terms: ['sim', 'dtac', 'ais', 'mobile plan', 'мобильная связь'] },
-  { name: 'Страховки', terms: ['insurance', 'страховка', 'страхование'] },
-  { name: 'Коммуналка + интернет', terms: ['utilities', 'коммунал', 'electricity', 'электричество', 'internet', 'интернет', 'water bill'] },
-  { name: 'Жильё', terms: ['rent', 'аренда', 'condo', 'кондо', 'жильё', 'жилье'] },
-  { name: 'Байк', terms: ['motorbike', 'scooter rental', 'аренда байка', 'байк'] },
-  { name: 'Быт / laundry', terms: ['laundry', 'прачечная', 'стирка', 'cleaning', 'уборка'] },
-  { name: 'Продукты домой', terms: ['groceries', 'продукты', 'lotus', 'big c', 'makro', 'supermarket', 'супермаркет'] },
-  { name: 'Кафе / рестораны / доставка', terms: ['restaurant', 'ресторан', 'кафе', 'delivery', 'доставка', 'foodpanda', 'grab food'] },
-  { name: 'Развлечения / активности', terms: ['cinema', 'кино', 'concert', 'концерт', 'экскурсия', 'activity', 'активность'] },
+  { name: 'Спорт+хобби', terms: ['padel', 'paddle', 'падел', 'теннис', 'tournament', 'турнир', 'gym', 'fitness', 'зал', 'тренировка', 'спорт', 'йога', 'хобби', 'ракетка', 'корт'] },
+  { name: 'Кофе', terms: ['coffee', 'кофе', 'капучино', 'латте', 'starbucks', 'amazon cafe'] },
+  { name: 'Массажи / recovery', terms: ['massage', 'массаж', 'recovery', 'восстановление', 'spa', 'спа', 'сауна'] },
+  { name: 'Grab / такси', terms: ['taxi', 'такси', 'grab ride', 'grab taxi', 'bolt', 'indrive', 'поездка на grab'] },
+  { name: '7-Eleven / снеки / напитки', terms: ['7 eleven', 'seven eleven', '7 11', 'снеки', 'snack', 'напитки', 'вода и снеки'] },
+  { name: 'Бензин', terms: ['fuel', 'petrol', 'gasoline', 'бензин', 'заправка', 'топливо'] },
+  { name: 'SIM', terms: ['sim', 'dtac', 'ais', 'true move', 'mobile plan', 'мобильная связь', 'симка'] },
+  { name: 'Страховки', terms: ['insurance', 'страховка', 'страхование', 'полис'] },
+  { name: 'Коммуналка + интернет', terms: ['utilities', 'коммунал', 'electricity', 'электричество', 'internet', 'интернет', 'water bill', 'счёт за воду'] },
+  { name: 'Жильё', terms: ['house rent', 'condo rent', 'аренда жилья', 'аренда квартиры', 'condo', 'кондо', 'жильё', 'жилье', 'апартаменты'] },
+  { name: 'Байк', terms: ['motorbike', 'scooter rental', 'аренда байка', 'ремонт байка', 'байк', 'скутер', 'шлем'] },
+  { name: 'Быт / laundry', terms: ['laundry', 'прачечная', 'стирка', 'cleaning', 'уборка', 'бытовая химия', 'туалетные принадлежности'] },
+  { name: 'Продукты домой', terms: ['groceries', 'продукты домой', 'продукты', 'lotus', 'big c', 'makro', 'tops market', 'supermarket', 'супермаркет', 'рынок продуктов'] },
+  { name: 'Кафе / рестораны / доставка', terms: ['restaurant', 'ресторан', 'кафе', 'ужин', 'обед', 'завтрак', 'delivery', 'доставка еды', 'foodpanda', 'grab food'] },
+  { name: 'Развлечения / активности', terms: ['cinema', 'кино', 'concert', 'концерт', 'экскурсия', 'activity', 'активность', 'билет', 'музей', 'вечеринка', 'бар'] },
+  { name: 'Буфер', terms: ['буфер', 'непредвиденные расходы', 'непредвиденное'] },
 ]
 
 function hintedCategory(categories, text) {
@@ -281,6 +285,8 @@ function mapExpense(row) {
     normalizedMerchant: row.normalized_merchant,
     notes: row.notes,
     owner: row.owner,
+    originalAmountMinor: row.original_amount_minor,
+    originalCurrency: row.original_currency,
     paidFrom: row.paid_from,
     usdPerThb: row.usd_per_thb,
   }
@@ -305,14 +311,14 @@ function validateExpense(value) {
   const captureMethod = CAPTURE_METHODS.has(value.captureMethod) ? value.captureMethod : null
   const merchant = requiredString(value.merchant, 'Укажите магазин или место.')
   const categoryId = requiredString(value.categoryId, 'Выберите категорию.')
-  const amountSatang = requiredInteger(value.amountSatang, 'Сумма должна быть положительным числом сатангов.', 1)
+  const originalCurrency = EXPENSE_CURRENCIES.has(value.originalCurrency) ? value.originalCurrency : null
+  const originalAmountMinor = requiredInteger(value.originalAmountMinor, 'Сумма должна быть положительным числом.', 1)
   const ilyaShareBps = requiredInteger(value.ilyaShareBps, 'Проверьте долю Ильи.', 0, 10_000)
-  if (!owner || !paidFrom || !captureMethod) throw new HttpError(400, 'Проверьте владельца, счёт и способ добавления расхода.')
+  if (!owner || !paidFrom || !captureMethod || !originalCurrency) throw new HttpError(400, 'Проверьте владельца, счёт, валюту и способ добавления расхода.')
   if ((owner === 'ilya' && ilyaShareBps !== 10_000) || (owner === 'masha' && ilyaShareBps !== 0)) {
     throw new HttpError(400, 'Личная трата должна полностью принадлежать выбранному владельцу.')
   }
   return {
-    amountSatang,
     captureMethod,
     categoryId,
     duplicateConfirmed: Boolean(value.duplicateConfirmed),
@@ -322,6 +328,8 @@ function validateExpense(value) {
     normalizedMerchant: normalizeMerchant(merchant),
     notes: typeof value.notes === 'string' && value.notes.trim() ? value.notes.trim().slice(0, 4000) : null,
     owner,
+    originalAmountMinor,
+    originalCurrency,
     paidFrom,
   }
 }
@@ -421,6 +429,30 @@ async function expenseById(db, id) {
   return row
 }
 
+async function exactRate(db, date) {
+  const row = await db.prepare(`SELECT rate_date, usd_per_thb, ils_per_thb
+    FROM exchange_rates WHERE rate_date = ?`).bind(date).first()
+  if (row) return { rateDate: row.rate_date, usdPerThb: row.usd_per_thb, ilsPerThb: row.ils_per_thb }
+  const rate = await fetchExactRate(date)
+  await db.prepare(`INSERT INTO exchange_rates
+    (rate_date, usd_per_thb, ils_per_thb) VALUES (?, ?, ?)
+    ON CONFLICT (rate_date) DO UPDATE SET usd_per_thb = excluded.usd_per_thb,
+      ils_per_thb = excluded.ils_per_thb, fetched_at = ?`)
+    .bind(date, rate.usdPerThb, rate.ilsPerThb, new Date().toISOString()).run()
+  return rate
+}
+
+async function convertExpenseInput(db, input) {
+  if (input.originalCurrency === 'THB') {
+    return { ...input, amountSatang: input.originalAmountMinor, usdPerThb: null, ilsPerThb: null }
+  }
+  const rate = await exactRate(db, input.expenseDate)
+  const divisor = input.originalCurrency === 'USD' ? rate.usdPerThb : rate.ilsPerThb
+  const amountSatang = Math.round(input.originalAmountMinor / divisor)
+  if (!Number.isSafeInteger(amountSatang) || amountSatang <= 0) throw new HttpError(400, 'Не удалось пересчитать сумму в батах.')
+  return { ...input, amountSatang, usdPerThb: rate.usdPerThb, ilsPerThb: rate.ilsPerThb }
+}
+
 async function handleExpenses(request, db, identity, url) {
   const segments = url.pathname.split('/').filter(Boolean)
   if (segments.length === 2 && request.method === 'GET') {
@@ -440,18 +472,20 @@ async function handleExpenses(request, db, identity, url) {
     return json(row ? mapExpense(row) : null)
   }
   if (segments.length === 2 && request.method === 'POST') {
-    const input = validateExpense(await readJson(request))
+    const input = await convertExpenseInput(db, validateExpense(await readJson(request)))
     await ensureCategory(db, input.categoryId)
     const id = crypto.randomUUID()
     await db.prepare(`INSERT INTO expenses
       (id, household_id, amount_satang, capture_method, category_id, created_by,
        duplicate_confirmed, expense_date, ilya_share_bps, merchant,
-       normalized_merchant, notes, owner, paid_from)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+       normalized_merchant, notes, owner, original_amount_minor, original_currency,
+       paid_from, usd_per_thb, ils_per_thb)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .bind(id, HOUSEHOLD_ID, input.amountSatang, input.captureMethod, input.categoryId,
         identity.userId, input.duplicateConfirmed ? 1 : 0, input.expenseDate,
         input.ilyaShareBps, input.merchant, input.normalizedMerchant, input.notes,
-        input.owner, input.paidFrom).run()
+        input.owner, input.originalAmountMinor, input.originalCurrency, input.paidFrom,
+        input.usdPerThb, input.ilsPerThb).run()
     return json(mapExpense(await expenseById(db, id)), 201)
   }
   const id = decodeURIComponent(segments[2] || '')
@@ -459,18 +493,19 @@ async function handleExpenses(request, db, identity, url) {
   if (request.method === 'PATCH') {
     const current = mapExpense(await expenseById(db, id))
     const body = await readJson(request)
-    const input = validateExpense({ ...current, ...body })
+    const input = await convertExpenseInput(db, validateExpense({ ...current, ...body }))
     await ensureCategory(db, input.categoryId)
     await db.prepare(`UPDATE expenses SET amount_satang = ?, capture_method = ?,
       category_id = ?, duplicate_confirmed = ?, expense_date = ?, ilya_share_bps = ?,
       merchant = ?, normalized_merchant = ?, notes = ?, owner = ?, paid_from = ?,
-      usd_per_thb = ?, ils_per_thb = ?, updated_at = ?
+      original_amount_minor = ?, original_currency = ?, usd_per_thb = ?,
+      ils_per_thb = ?, updated_at = ?
       WHERE household_id = ? AND id = ?`)
       .bind(input.amountSatang, input.captureMethod, input.categoryId,
         input.duplicateConfirmed ? 1 : 0, input.expenseDate, input.ilyaShareBps,
         input.merchant, input.normalizedMerchant, input.notes, input.owner,
-        input.paidFrom, positiveNumberOrNull(body.usdPerThb),
-        positiveNumberOrNull(body.ilsPerThb), new Date().toISOString(), HOUSEHOLD_ID, id).run()
+        input.paidFrom, input.originalAmountMinor, input.originalCurrency,
+        input.usdPerThb, input.ilsPerThb, new Date().toISOString(), HOUSEHOLD_ID, id).run()
     return json(mapExpense(await expenseById(db, id)))
   }
   if (request.method === 'DELETE') {
@@ -664,9 +699,10 @@ async function openAI(env, path, init) {
 const EXPENSE_CAPTURE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['amountSatang', 'expenseDate', 'merchant', 'notes', 'categoryId', 'owner', 'paidFrom', 'ilyaShareBps', 'confidence', 'warnings'],
+  required: ['amountMinor', 'currency', 'expenseDate', 'merchant', 'notes', 'categoryId', 'owner', 'paidFrom', 'ilyaShareBps', 'confidence', 'warnings'],
   properties: {
-    amountSatang: { type: 'integer', minimum: 0 },
+    amountMinor: { type: 'integer', minimum: 0 },
+    currency: { type: 'string', enum: ['THB', 'ILS', 'USD'] },
     expenseDate: { type: 'string', format: 'date' },
     merchant: { type: 'string' },
     notes: { type: 'string' },
@@ -720,8 +756,8 @@ function validConfidence(value) {
 }
 
 function normalizeCaptureItem(value, categoryIds) {
-  if (!value || typeof value !== 'object' || !Number.isSafeInteger(value.amountSatang) ||
-    value.amountSatang < 0 || !isExactDate(value.expenseDate) ||
+  if (!value || typeof value !== 'object' || !Number.isSafeInteger(value.amountMinor) ||
+    value.amountMinor < 0 || !EXPENSE_CURRENCIES.has(value.currency) || !isExactDate(value.expenseDate) ||
     typeof value.merchant !== 'string' || typeof value.notes !== 'string' ||
     typeof value.categoryId !== 'string' || (value.categoryId && !categoryIds.has(value.categoryId)) ||
     !OWNERS.has(value.owner) || !OWNERS.has(value.paidFrom) ||
@@ -732,7 +768,8 @@ function normalizeCaptureItem(value, categoryIds) {
   }
   return {
     draft: {
-      amountSatang: value.amountSatang,
+      amountMinor: value.amountMinor,
+      currency: value.currency,
       expenseDate: value.expenseDate,
       merchant: value.merchant.trim(),
       notes: value.notes.trim(),
@@ -756,14 +793,14 @@ async function loadCaptureContext(db) {
   return { categories: categoryResult.results, rules: ruleResult.results }
 }
 
-async function extractExpenses(env, context, content, transcript, receipt = false) {
+async function extractExpenses(env, context, content, transcript, receipt = false, currentPerson = 'ilya') {
   const today = new Intl.DateTimeFormat('en-CA', {
     day: '2-digit', month: '2-digit', timeZone: 'Asia/Bangkok', year: 'numeric',
   }).format(new Date())
   const mode = receipt
     ? 'Это чек: верни ровно один расход по итоговой сумме; позиции используй только для названия и категории.'
     : 'Выдели каждый отдельно названный платёж или покупку как отдельный расход. Не объединяй несколько сумм в одну. Верни от 1 до 12 расходов в исходном порядке.'
-  const instructions = `${mode} Валюта по умолчанию THB; сумму верни в сатангах (1 THB = 100), если другая валюта не указана явно — добавь предупреждение и не конвертируй. Сегодня в Asia/Bangkok: ${today}. merchant — короткое понятное название расхода по-русски: место, если оно названо, иначе предмет или цель расхода; merchant никогда не должен быть пустым. Выбирай категорию по смыслу: падел, теннис, турниры, фитнес и спорт относятся к «Спорт+хобби». Не выдумывай остальные отсутствующие данные: confidence ставь низкой. Для неизвестной даты используй ${today} и предупреждение. owner/paidFrom по умолчанию mutual с низкой уверенностью. Категории: ${JSON.stringify(context.categories)}. categoryId только из списка либо пустая строка. Заметки не должны содержать чековые позиции. Верни только объект схемы.`
+  const instructions = `${mode} Верни исходную сумму в amountMinor (100 минорных единиц = 1 THB/ILS/USD) и currency. Бат/baht/฿ = THB, шекель/NIS/₪ = ILS, доллар/$ = USD. Валюта по умолчанию THB; не конвертируй сумму. Сегодня в Asia/Bangkok: ${today}. Текущий пользователь: ${currentPerson}. merchant — короткое понятное название расхода по-русски: место, если оно названо, иначе предмет или цель; не повторяй сумму и валюту, не оставляй пустым. Примеры: «турнир по паделу 900» → «Турнир по паделу», «кофе 120» → «Кофе», «Lotus 850» → «Lotus». owner означает чей бюджет: обычные совместные траты пары и траты “для нас” — mutual; явно личные — названный человек. paidFrom означает фактический счёт: “я заплатил/а”, “с моей карты” и “с личного” означают ${currentPerson}; “Маша заплатила” — masha; “Илья заплатил” — ilya; “с общего счёта/карты” — mutual. Если владелец или плательщик не указан, используй mutual с низкой уверенностью. Выбирай categoryId только из списка и по смыслу названия/предмета, а не случайному слову. Категории: ${JSON.stringify(context.categories)}. Не выдумывай отсутствующие данные: confidence ставь низкой. Для неизвестной даты используй ${today} и предупреждение. Заметки не должны содержать чековые позиции. Верни только объект схемы.`
   const raw = await structuredResponse(env, [{ type: 'input_text', text: instructions }, ...content])
   if (!Array.isArray(raw?.expenses) || raw.expenses.length === 0) throw new HttpError(502, 'Сервис не смог распознать расходы.')
   const categoryIds = new Set(context.categories.map((category) => category.id))
@@ -817,13 +854,13 @@ function bytesToBase64(bytes) {
   return btoa(binary)
 }
 
-async function handleCapture(request, env, db, url) {
+async function handleCapture(request, env, db, url, identity) {
   if (request.method !== 'POST') throw new HttpError(405, 'Метод не поддерживается.')
   const kind = url.pathname.slice('/api/capture/'.length)
   if (kind === 'text') {
     const [body, context] = await Promise.all([readJson(request), loadCaptureContext(db)])
     const text = requiredString(body.text, 'Введите описание расхода длиной до 4000 символов.', 4000)
-    return json(await extractExpenses(env, context, [{ type: 'input_text', text }]))
+    return json(await extractExpenses(env, context, [{ type: 'input_text', text }], undefined, false, identity.person))
   }
   if (kind === 'voice') {
     let transcript
@@ -836,7 +873,7 @@ async function handleCapture(request, env, db, url) {
       }
       const [nextTranscript, context] = await Promise.all([transcribe(env, file), loadCaptureContext(db)])
       transcript = nextTranscript
-      return json(await extractExpenses(env, context, [{ type: 'input_text', text: transcript }], transcript))
+      return json(await extractExpenses(env, context, [{ type: 'input_text', text: transcript }], transcript, false, identity.person))
     } catch (error) {
       if (transcript && error instanceof HttpError) error.extra = { ...error.extra, transcript }
       throw error
@@ -854,7 +891,7 @@ async function handleCapture(request, env, db, url) {
     return json(await extractExpenses(env, context, [
       { type: 'input_text', text: 'Распознай итоговую сумму, магазин/место и дату. Позиции используй только как подсказки для категории и не возвращай их.' },
       { type: 'input_image', image_url: imageUrl },
-    ], undefined, true))
+    ], undefined, true, identity.person))
   }
   throw new HttpError(404, 'Маршрут не найден.')
 }
@@ -874,7 +911,7 @@ async function handleApi(request, env) {
   if (url.pathname === '/api/budgets') return handleBudgets(request, env.DB)
   if (url.pathname === '/api/settlements') return handleSettlements(request, env.DB, identity)
   if (url.pathname === '/api/rates') return handleRates(request, env.DB, url)
-  if (url.pathname.startsWith('/api/capture/')) return handleCapture(request, env, env.DB, url)
+  if (url.pathname.startsWith('/api/capture/')) return handleCapture(request, env, env.DB, url, identity)
   throw new HttpError(404, 'Маршрут не найден.')
 }
 

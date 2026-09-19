@@ -76,7 +76,7 @@ export function MoneyAmount({ amountSatang, date, rate, className }: { amountSat
   return <span className={className}>{format(amountSatang, embedded ?? requested.data)}</span>
 }
 
-export function NativeMoneyAmount({ amountMinor, currency, className }: { amountMinor: number; currency: BudgetCurrency; className?: string }) {
+export function NativeMoneyAmount({ amountMinor, currency, className }: { amountMinor: number; currency: DisplayCurrency; className?: string }) {
   return <span className={className}>{formatCurrency(amountMinor / 100, currency)}</span>
 }
 

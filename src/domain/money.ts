@@ -2,7 +2,7 @@ export type Currency = 'THB' | 'USD' | 'ILS'
 
 const THB_INPUT = /^(?<baht>\d+)(?:\.(?<satang>\d{1,2}))?$/
 
-export function parseThb(value: string): number {
+export function parseMoneyMinor(value: string): number {
   const match = THB_INPUT.exec(value)
 
   if (!match?.groups) {
@@ -13,9 +13,11 @@ export function parseThb(value: string): number {
   const satang = Number((match.groups.satang ?? '').padEnd(2, '0'))
   const amountSatang = baht * 100 + satang
 
-  assertPositiveSafeInteger(amountSatang, 'THB amount')
+  assertPositiveSafeInteger(amountSatang, 'Money amount')
   return amountSatang
 }
+
+export const parseThb = parseMoneyMinor
 
 export function convertSatang(amountSatang: number, rate: number): number {
   assertNonNegativeSafeInteger(amountSatang, 'Amount')

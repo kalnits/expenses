@@ -1,5 +1,7 @@
 export type Person = 'ilya' | 'masha'
 
+export type ExpenseCurrency = 'THB' | 'ILS' | 'USD'
+
 export type BudgetOwner = Person | 'mutual'
 
 export type PaymentSource = Person | 'mutual'

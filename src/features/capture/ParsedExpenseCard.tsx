@@ -2,8 +2,8 @@ import { Check, ChevronDown } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 
 import { ownerLabels, sourceLabels } from '../../app/ledger'
-import type { BudgetOwner, PaymentSource } from '../../domain/expense'
-import { parseThb } from '../../domain/money'
+import type { BudgetOwner, ExpenseCurrency, PaymentSource } from '../../domain/expense'
+import { parseMoneyMinor } from '../../domain/money'
 import type { CategoryRecord } from '../categories/categoryRepository'
 import type { ExpenseDraft } from '../expenses/ExpenseDraftForm'
 import type { CaptureConfidence } from './captureClient'
@@ -21,22 +21,22 @@ interface Props {
 
 export function ParsedExpenseCard({ categories, confidence, draft: initial, isSaving, label, onCancel, onSave, warnings = [] }: Props) {
   const [draft, setDraft] = useState(initial)
-  const [amount, setAmount] = useState(initial.amountSatang ? String(initial.amountSatang / 100) : '')
+  const [amount, setAmount] = useState(initial.amountMinor ? String(initial.amountMinor / 100) : '')
   const [expanded, setExpanded] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   function submit(event: FormEvent) {
     event.preventDefault(); setError(null)
     try {
-      const amountSatang = parseThb(amount.replace(',', '.').trim())
+      const amountMinor = parseMoneyMinor(amount.replace(',', '.').trim())
       if (!draft.merchant.trim() || !draft.categoryId || !draft.expenseDate) throw new Error('Проверьте место, категорию и дату.')
-      onSave({ ...draft, amountSatang, merchant: draft.merchant.trim(), notes: draft.notes.trim(), ilyaShareBps: draft.owner === 'ilya' ? 10000 : draft.owner === 'masha' ? 0 : draft.ilyaShareBps })
+      onSave({ ...draft, amountMinor, merchant: draft.merchant.trim(), notes: draft.notes.trim(), ilyaShareBps: draft.owner === 'ilya' ? 10000 : draft.owner === 'masha' ? 0 : draft.ilyaShareBps })
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Проверьте данные расхода.') }
   }
 
   return <form className="assistant-bubble parsed-card" onSubmit={submit}>
     <div className="parsed-label"><span className="assistant-dot"><Check size={13} /></span><span>{label ?? 'Готово к сохранению'}</span></div>
-    <div className={`parsed-amount${confidence && confidence.amount < .7 ? ' needs-check' : ''}`}><input aria-label="Сумма" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} /><span>฿</span></div>
+    <div className={`parsed-amount${confidence && confidence.amount < .7 ? ' needs-check' : ''}`}><input aria-label="Сумма" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} /><select aria-label="Валюта расхода" value={draft.currency} onChange={(event) => setDraft({ ...draft, currency: event.target.value as ExpenseCurrency })}><option value="THB">฿ THB</option><option value="ILS">₪ ILS</option><option value="USD">$ USD</option></select></div>
     <input className={confidence && confidence.merchant < .7 ? 'needs-check' : ''} aria-label="Название расхода" value={draft.merchant} onChange={(event) => setDraft({ ...draft, merchant: event.target.value })} placeholder="Название расхода" />
     <div className="parsed-grid">
       <label className={confidence && confidence.category < .7 ? 'needs-check' : ''}><span>Категория</span><select value={draft.categoryId} onChange={(event) => setDraft({ ...draft, categoryId: event.target.value })}><option value="">Выберите</option>{categories.filter((category) => category.isActive).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>

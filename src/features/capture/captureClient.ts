@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { ExpenseDraft } from '../expenses/ExpenseDraftForm'
 
 const draftSchema = z.object({
-  amountSatang: z.number().int().nonnegative(), expenseDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), merchant: z.string(), notes: z.string(), categoryId: z.string(),
+  amountMinor: z.number().int().nonnegative(), currency: z.enum(['THB', 'ILS', 'USD']), expenseDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), merchant: z.string(), notes: z.string(), categoryId: z.string(),
   owner: z.enum(['ilya', 'masha', 'mutual']), paidFrom: z.enum(['ilya', 'masha', 'mutual']), ilyaShareBps: z.number().int().min(0).max(10000),
 }).strict()
 const confidenceSchema = z.object({ amount: z.number().min(0).max(1), merchant: z.number().min(0).max(1), date: z.number().min(0).max(1), category: z.number().min(0).max(1), owner: z.number().min(0).max(1), paidFrom: z.number().min(0).max(1) }).strict()

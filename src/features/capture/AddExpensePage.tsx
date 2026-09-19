@@ -39,10 +39,11 @@ export function AddExpensePage() {
   const save = useMutation({
     mutationFn: async ({ localId, value, duplicateConfirmed, detectedCategory }: { localId: string; value: ExpenseDraft; duplicateConfirmed: boolean; detectedCategory?: string }) => {
       const normalizedMerchant = normalizeMerchant(value.merchant)
-      const input: ExpenseInput = { ...value, captureMethod: method, createdBy: userId, duplicateConfirmed, normalizedMerchant, notes: value.notes || null, ilsPerThb: null, usdPerThb: null }
+      const { amountMinor, currency, ...details } = value
+      const input: ExpenseInput = { ...details, originalAmountMinor: amountMinor, originalCurrency: currency, captureMethod: method, createdBy: userId, duplicateConfirmed, normalizedMerchant, notes: value.notes || null, ilsPerThb: null, usdPerThb: null }
       const expense = await repository.create(input)
       if (detectedCategory && detectedCategory !== value.categoryId && normalizedMerchant) void categoryRepository.rememberMerchant(normalizedMerchant, value.categoryId).catch(() => undefined)
-      void requestExchangeRate(expense.expenseDate, expense.id).then(() => invalidateLedger(queryClient, householdId)).catch(() => undefined)
+      if (!expense.usdPerThb || !expense.ilsPerThb) void requestExchangeRate(expense.expenseDate, expense.id).then(() => invalidateLedger(queryClient, householdId)).catch(() => undefined)
       return { expense, localId }
     },
     onSuccess: ({ localId }) => {
@@ -58,7 +59,7 @@ export function AddExpensePage() {
     const entry = entries.find((candidate) => candidate.localId === localId)
     if (!force) {
       const merchant = normalizeMerchant(value.merchant)
-      const found = (queryClient.getQueryData<ExpenseRecord[]>(queryKeys.expenses(householdId)) ?? []).find((expense) => expense.expenseDate === value.expenseDate && expense.amountSatang === value.amountSatang && expense.normalizedMerchant === merchant)
+      const found = (queryClient.getQueryData<ExpenseRecord[]>(queryKeys.expenses(householdId)) ?? []).find((expense) => expense.expenseDate === value.expenseDate && expense.originalAmountMinor === value.amountMinor && expense.originalCurrency === value.currency && expense.normalizedMerchant === merchant)
       if (found) { setDuplicate({ existing: found, localId, value }); return }
     }
     save.mutate({ localId, value, duplicateConfirmed: force, detectedCategory: entry?.categoryEvidence?.categoryId })

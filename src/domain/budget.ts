@@ -15,6 +15,40 @@ export interface MonthlyBudget {
   categoryLimits: CategoryLimit[]
 }
 
+const DEFAULT_MUTUAL_CATEGORY_LIMITS: CategoryLimit[] = [
+  ['category-housing', 280_000],
+  ['category-utilities', 40_000],
+  ['category-bike', 50_000],
+  ['category-fuel', 15_000],
+  ['category-home-groceries', 100_000],
+  ['category-food-out', 130_000],
+  ['category-coffee', 35_000],
+  ['category-convenience', 40_000],
+  ['category-sport-hobbies', 120_000],
+  ['category-recovery', 30_000],
+  ['category-activities', 50_000],
+  ['category-taxi', 15_000],
+  ['category-sim', 10_000],
+  ['category-household', 25_000],
+  ['category-insurance', 35_000],
+  ['category-buffer', 25_000],
+].map(([categoryId, limitSatang]) => ({ categoryId: String(categoryId), limitSatang: Number(limitSatang) }))
+
+export function defaultMutualBudget(month: string): MonthlyBudget {
+  validateMonth(month)
+  return {
+    month,
+    owner: 'mutual',
+    currency: 'ILS',
+    totalLimitSatang: 1_000_000,
+    categoryLimits: DEFAULT_MUTUAL_CATEGORY_LIMITS.map((limit) => ({ ...limit })),
+  }
+}
+
+export function resolveMonthlyBudget(budgets: readonly MonthlyBudget[], month: string, owner: BudgetOwner): MonthlyBudget | undefined {
+  return budgets.find((budget) => budget.month === month && budget.owner === owner) ?? (owner === 'mutual' ? defaultMutualBudget(month) : undefined)
+}
+
 export interface ExpenseSummary {
   occurredAt: Date | string
   owner: BudgetOwner

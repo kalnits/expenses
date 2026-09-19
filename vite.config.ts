@@ -12,6 +12,10 @@ export default defineConfig({
         short_name: 'Расходы',
         lang: 'ru',
         display: 'standalone',
+        display_override: ['standalone', 'minimal-ui'],
+        start_url: '/',
+        scope: '/',
+        orientation: 'portrait-primary',
         theme_color: '#12372a',
         background_color: '#f6f2e8',
         icons: [

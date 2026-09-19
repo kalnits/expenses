@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import type { BudgetOwner, PaymentSource } from '../../domain/expense'
+import type { BudgetOwner, ExpenseCurrency, PaymentSource } from '../../domain/expense'
 import { apiJson, apiRequest } from '../../lib/api'
 
 const expenseSchema = z.object({
@@ -19,6 +19,8 @@ const expenseSchema = z.object({
   normalizedMerchant: z.string(),
   notes: z.string().nullable(),
   owner: z.enum(['ilya', 'masha', 'mutual']),
+  originalAmountMinor: z.number().int().positive(),
+  originalCurrency: z.enum(['THB', 'ILS', 'USD']),
   paidFrom: z.enum(['ilya', 'masha', 'mutual']),
   usdPerThb: z.number().nullable(),
 })
@@ -26,10 +28,10 @@ const expenseSchema = z.object({
 export interface ExpenseRecord {
   id: string; householdId: string; amountSatang: number; captureMethod: 'manual' | 'text' | 'voice' | 'receipt'; categoryId: string
   createdAt: string; createdBy: string; duplicateConfirmed: boolean; expenseDate: string; ilsPerThb: number | null; ilyaShareBps: number
-  merchant: string; normalizedMerchant: string; notes: string | null; owner: BudgetOwner; paidFrom: PaymentSource; usdPerThb: number | null
+  merchant: string; normalizedMerchant: string; notes: string | null; owner: BudgetOwner; originalAmountMinor: number; originalCurrency: ExpenseCurrency; paidFrom: PaymentSource; usdPerThb: number | null
 }
 
-export type ExpenseInput = Omit<ExpenseRecord, 'id' | 'householdId' | 'createdAt'>
+export type ExpenseInput = Omit<ExpenseRecord, 'id' | 'householdId' | 'createdAt' | 'amountSatang'>
 export type ExpenseUpdate = Partial<Omit<ExpenseInput, 'createdBy'>>
 
 function parseExpense(value: unknown): ExpenseRecord {

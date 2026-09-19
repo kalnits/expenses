@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 
 import { bangkokToday, calculateDebt, currentBangkokMonth, debtSentence, monthBounds, ownerLabels } from '../../app/ledger'
 import { queryKeys, useHousehold } from '../../app/providers'
-import { expenseAmountInBudgetMinor } from '../../domain/budget'
+import { expenseAmountInBudgetMinor, resolveMonthlyBudget } from '../../domain/budget'
 import type { BudgetOwner } from '../../domain/expense'
 import { BudgetMoneyAmount, MoneyAmount, useDisplayCurrency, useExchangeRate } from '../../lib/displayCurrency'
 import { createBudgetRepository } from '../budgets/budgetRepository'
@@ -30,7 +30,7 @@ export function DashboardPage() {
 
   const monthExpenses = expenses.data.filter((expense) => expense.expenseDate >= bounds.start && expense.expenseDate < bounds.end)
   const mutualExpenses = monthExpenses.filter((expense) => expense.owner === 'mutual')
-  const mutualBudget = budgets.data.find((budget) => budget.month === month && budget.owner === 'mutual')
+  const mutualBudget = resolveMonthlyBudget(budgets.data, month, 'mutual')
   const budgetCurrency = mutualBudget?.currency ?? 'THB'
   const mutualBudgetAmounts = mutualExpenses.map((expense) => expenseAmountInBudgetMinor(expense.amountSatang, budgetCurrency, expense.ilsPerThb))
   const mutualSpent = mutualBudgetAmounts.reduce<number>((sum, amount) => sum + (amount ?? 0), 0)
