@@ -41,27 +41,21 @@ ON CONFLICT (household_id, month, owner) DO UPDATE SET
 DELETE FROM budget_category_limits
 WHERE monthly_budget_id = 'thailand-household:' || date('now', '+7 hours', 'start of month') || ':mutual';
 
-INSERT INTO budget_category_limits (monthly_budget_id, category_id, limit_satang)
-SELECT 'thailand-household:' || date('now', '+7 hours', 'start of month') || ':mutual', id, amount_minor
-FROM categories
-JOIN (
-  SELECT 'жильё' AS normalized_name, 280000 AS amount_minor UNION ALL
-  SELECT 'коммуналка + интернет', 40000 UNION ALL
-  SELECT 'байк', 50000 UNION ALL
-  SELECT 'бензин', 15000 UNION ALL
-  SELECT 'продукты домой', 100000 UNION ALL
-  SELECT 'кафе / рестораны / доставка', 130000 UNION ALL
-  SELECT 'кофе', 35000 UNION ALL
-  SELECT '7-eleven / снеки / напитки', 40000 UNION ALL
-  SELECT 'спорт+хобби', 120000 UNION ALL
-  SELECT 'массажи / recovery', 30000 UNION ALL
-  SELECT 'развлечения / активности', 50000 UNION ALL
-  SELECT 'grab / такси', 15000 UNION ALL
-  SELECT 'sim', 10000 UNION ALL
-  SELECT 'быт / laundry', 25000 UNION ALL
-  SELECT 'страховки', 35000 UNION ALL
-  SELECT 'буфер', 25000
-) defaults USING (normalized_name)
-WHERE categories.household_id = 'thailand-household' AND categories.is_active = 1;
+INSERT INTO budget_category_limits SELECT 'thailand-household:' || date('now', '+7 hours', 'start of month') || ':mutual', id, 280000, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM categories WHERE household_id = 'thailand-household' AND normalized_name = 'жильё' AND is_active = 1 LIMIT 1;
+INSERT INTO budget_category_limits SELECT 'thailand-household:' || date('now', '+7 hours', 'start of month') || ':mutual', id, 40000, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM categories WHERE household_id = 'thailand-household' AND normalized_name = 'коммуналка + интернет' AND is_active = 1 LIMIT 1;
+INSERT INTO budget_category_limits SELECT 'thailand-household:' || date('now', '+7 hours', 'start of month') || ':mutual', id, 50000, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM categories WHERE household_id = 'thailand-household' AND normalized_name = 'байк' AND is_active = 1 LIMIT 1;
+INSERT INTO budget_category_limits SELECT 'thailand-household:' || date('now', '+7 hours', 'start of month') || ':mutual', id, 15000, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM categories WHERE household_id = 'thailand-household' AND normalized_name = 'бензин' AND is_active = 1 LIMIT 1;
+INSERT INTO budget_category_limits SELECT 'thailand-household:' || date('now', '+7 hours', 'start of month') || ':mutual', id, 100000, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM categories WHERE household_id = 'thailand-household' AND normalized_name = 'продукты домой' AND is_active = 1 LIMIT 1;
+INSERT INTO budget_category_limits SELECT 'thailand-household:' || date('now', '+7 hours', 'start of month') || ':mutual', id, 130000, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM categories WHERE household_id = 'thailand-household' AND normalized_name = 'кафе / рестораны / доставка' AND is_active = 1 LIMIT 1;
+INSERT INTO budget_category_limits SELECT 'thailand-household:' || date('now', '+7 hours', 'start of month') || ':mutual', id, 35000, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM categories WHERE household_id = 'thailand-household' AND normalized_name = 'кофе' AND is_active = 1 LIMIT 1;
+INSERT INTO budget_category_limits SELECT 'thailand-household:' || date('now', '+7 hours', 'start of month') || ':mutual', id, 40000, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM categories WHERE household_id = 'thailand-household' AND normalized_name = '7-eleven / снеки / напитки' AND is_active = 1 LIMIT 1;
+INSERT INTO budget_category_limits SELECT 'thailand-household:' || date('now', '+7 hours', 'start of month') || ':mutual', id, 120000, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM categories WHERE household_id = 'thailand-household' AND normalized_name = 'спорт+хобби' AND is_active = 1 LIMIT 1;
+INSERT INTO budget_category_limits SELECT 'thailand-household:' || date('now', '+7 hours', 'start of month') || ':mutual', id, 30000, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM categories WHERE household_id = 'thailand-household' AND normalized_name = 'массажи / recovery' AND is_active = 1 LIMIT 1;
+INSERT INTO budget_category_limits SELECT 'thailand-household:' || date('now', '+7 hours', 'start of month') || ':mutual', id, 50000, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM categories WHERE household_id = 'thailand-household' AND normalized_name = 'развлечения / активности' AND is_active = 1 LIMIT 1;
+INSERT INTO budget_category_limits SELECT 'thailand-household:' || date('now', '+7 hours', 'start of month') || ':mutual', id, 15000, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM categories WHERE household_id = 'thailand-household' AND normalized_name = 'grab / такси' AND is_active = 1 LIMIT 1;
+INSERT INTO budget_category_limits SELECT 'thailand-household:' || date('now', '+7 hours', 'start of month') || ':mutual', id, 10000, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM categories WHERE household_id = 'thailand-household' AND normalized_name = 'sim' AND is_active = 1 LIMIT 1;
+INSERT INTO budget_category_limits SELECT 'thailand-household:' || date('now', '+7 hours', 'start of month') || ':mutual', id, 25000, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM categories WHERE household_id = 'thailand-household' AND normalized_name = 'быт / laundry' AND is_active = 1 LIMIT 1;
+INSERT INTO budget_category_limits SELECT 'thailand-household:' || date('now', '+7 hours', 'start of month') || ':mutual', id, 35000, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM categories WHERE household_id = 'thailand-household' AND normalized_name = 'страховки' AND is_active = 1 LIMIT 1;
+INSERT INTO budget_category_limits SELECT 'thailand-household:' || date('now', '+7 hours', 'start of month') || ':mutual', id, 25000, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM categories WHERE household_id = 'thailand-household' AND normalized_name = 'буфер' AND is_active = 1 LIMIT 1;
 
 PRAGMA optimize;
