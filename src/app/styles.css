@@ -15,9 +15,9 @@
 }
 
 * { box-sizing: border-box; }
-html { min-width: 320px; min-height: 100%; background: var(--sand); }
-body { min-width: 320px; min-height: 100vh; min-height: 100dvh; margin: 0; background: radial-gradient(circle at 50% -20%, #e3f3ed 0, transparent 36%), var(--sand); overscroll-behavior-y: none; }
-button, input, select, textarea { color: inherit; font: inherit; }
+html { min-width: 320px; min-height: 100%; background: var(--sand); touch-action: pan-x pan-y; }
+body { min-width: 320px; min-height: 100vh; min-height: 100dvh; margin: 0; background: radial-gradient(circle at 50% -20%, #e3f3ed 0, transparent 36%), var(--sand); overscroll-behavior-y: none; touch-action: pan-x pan-y; }
+button, input, select, textarea { color: inherit; font: inherit; font-size: max(16px, 1em); }
 button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid #eab95f; outline-offset: 2px; }
 button { cursor: pointer; }
