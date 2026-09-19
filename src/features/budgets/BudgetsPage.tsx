@@ -11,7 +11,7 @@ import { createExpenseRepository, type ExpenseRecord } from '../expenses/expense
 import { createBudgetRepository } from './budgetRepository'
 import { MoneyAmount } from '../../lib/displayCurrency'
 
-const owners: BudgetOwner[] = ['ilya', 'masha', 'mutual']
+const owners: BudgetOwner[] = ['mutual', 'ilya', 'masha']
 
 function parseLimit(value: string): number {
   const normalized = value.replace(',', '.').trim()
@@ -43,7 +43,7 @@ export function BudgetsPage() {
   const { householdId } = useHousehold()
   const queryClient = useQueryClient()
   const [month, setMonth] = useState(currentBangkokMonth())
-  const [owner, setOwner] = useState<BudgetOwner>('ilya')
+  const [owner, setOwner] = useState<BudgetOwner>('mutual')
   const repository = createBudgetRepository()
   const budgets = useQuery({ queryKey: queryKeys.budgets(householdId), queryFn: () => repository.list() })
   const expenses = useQuery({ queryKey: queryKeys.expenses(householdId), queryFn: () => createExpenseRepository().list() })
@@ -57,5 +57,5 @@ export function BudgetsPage() {
   const initial = exact ?? (prior ? { ...prior, month } : undefined)
   const activeCategories = categories.data.filter((item) => item.isActive)
 
-  return <div className="page stack"><header className="page-header"><div><p className="eyebrow">Планы</p><h1>Бюджеты</h1></div><label className="month-control">Месяц<input type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label></header><div className="tabs" role="tablist">{owners.map((item) => <button key={item} type="button" role="tab" aria-selected={owner === item} onClick={() => setOwner(item)}>{ownerLabels[item]}</button>)}</div><BudgetEditor key={`${month}-${owner}-${exact ? 'saved' : 'draft'}`} month={month} owner={owner} initial={initial} copied={!exact && Boolean(prior)} categories={activeCategories} expenses={expenses.data} onSave={(budget) => save.mutate(budget)} saving={save.isPending} />{save.isError ? <p className="error-text" role="alert">{save.error.message}</p> : null}</div>
+  return <div className="page stack"><header className="page-header"><div><p className="eyebrow">Планы</p><h1>{owner === 'mutual' ? 'Общий бюджет' : `Бюджет · ${ownerLabels[owner]}`}</h1></div><label className="month-control">Месяц<input type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label></header><div className="tabs budget-tabs" role="tablist">{owners.map((item) => <button key={item} className={item === 'mutual' ? 'main-budget-tab' : undefined} type="button" role="tab" aria-selected={owner === item} onClick={() => setOwner(item)}>{ownerLabels[item]}</button>)}</div><BudgetEditor key={`${month}-${owner}-${exact ? 'saved' : 'draft'}`} month={month} owner={owner} initial={initial} copied={!exact && Boolean(prior)} categories={activeCategories} expenses={expenses.data} onSave={(budget) => save.mutate(budget)} saving={save.isPending} />{save.isError ? <p className="error-text" role="alert">{save.error.message}</p> : null}</div>
 }

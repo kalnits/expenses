@@ -123,6 +123,8 @@ legend { margin-bottom: 8px; color: #354c42; font-size: .88rem; font-weight: 750
 .tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; padding: 5px; border-radius: 15px; background: #e9e4d8; }
 .tabs button { min-height: 44px; border: 0; border-radius: 11px; background: transparent; font-weight: 800; }
 .tabs button[aria-selected="true"] { color: white; background: var(--ink); }
+.budget-tabs { grid-template-columns: 1.35fr 1fr 1fr; background: #e8efec; }
+.budget-tabs .main-budget-tab:not([aria-selected="true"]) { color: var(--teal); background: rgb(105 223 180 / 16%); }
 .capture-tabs { grid-template-columns: repeat(4, 1fr); }
 .confidence-warning { display: block; margin-top: 3px; color: #8a4b19; font-weight: 800; }
 .low-confidence input, .low-confidence select, .low-confidence .segmented { border-color: #bd722d; box-shadow: 0 0 0 2px rgb(189 114 45 / 14%); }
