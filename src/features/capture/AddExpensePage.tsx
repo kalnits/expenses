@@ -41,26 +41,37 @@ export function AddExpensePage() {
       const normalizedMerchant = normalizeMerchant(value.merchant)
       const input: ExpenseInput = { ...value, captureMethod: method, createdBy: userId, duplicateConfirmed, normalizedMerchant, notes: value.notes || null, ilsPerThb: null, usdPerThb: null }
       const expense = await repository.create(input)
-      if (detectedCategory && detectedCategory !== value.categoryId && normalizedMerchant) await categoryRepository.rememberMerchant(normalizedMerchant, value.categoryId).catch(() => undefined)
+      if (detectedCategory && detectedCategory !== value.categoryId && normalizedMerchant) void categoryRepository.rememberMerchant(normalizedMerchant, value.categoryId).catch(() => undefined)
       void requestExchangeRate(expense.expenseDate, expense.id).then(() => invalidateLedger(queryClient, householdId)).catch(() => undefined)
       return { expense, localId }
     },
-    onSuccess: async ({ localId }) => {
-      await invalidateLedger(queryClient, householdId)
+    onSuccess: ({ localId }) => {
       const remaining = entries.filter((entry) => entry.localId !== localId)
       setEntries(remaining); setDuplicate(null)
       if (remaining.length === 0) finishConversation()
+      void invalidateLedger(queryClient, householdId)
     },
   })
 
-  async function trySave(localId: string, value: ExpenseDraft, force = false) {
+  function trySave(localId: string, value: ExpenseDraft, force = false) {
     setDuplicate(null)
     const entry = entries.find((candidate) => candidate.localId === localId)
     if (!force) {
-      const found = await repository.findDuplicate(value.expenseDate, value.amountSatang, normalizeMerchant(value.merchant))
+      const merchant = normalizeMerchant(value.merchant)
+      const found = (queryClient.getQueryData<ExpenseRecord[]>(queryKeys.expenses(householdId)) ?? []).find((expense) => expense.expenseDate === value.expenseDate && expense.amountSatang === value.amountSatang && expense.normalizedMerchant === merchant)
       if (found) { setDuplicate({ existing: found, localId, value }); return }
     }
     save.mutate({ localId, value, duplicateConfirmed: force, detectedCategory: entry?.categoryEvidence?.categoryId })
+  }
+
+  function cancelEntry(localId: string) {
+    const remaining = entries.filter((entry) => entry.localId !== localId)
+    setEntries(remaining)
+    if (duplicate?.localId === localId) setDuplicate(null)
+    if (remaining.length === 0) {
+      if (message?.previewUrl) URL.revokeObjectURL(message.previewUrl)
+      setMessage(null); setMethod('manual')
+    }
   }
 
   function acceptCapture(result: CaptureResult, nextMessage: CaptureMessage, nextMethod: CaptureMethod) {
@@ -77,7 +88,7 @@ export function AddExpensePage() {
     <div className="chat-flow">
       {!message && entries.length === 0 && !success ? <div className="assistant-bubble welcome-bubble"><span className="assistant-dot"><ReceiptText size={14} /></span><p>Например: <strong>«Lotus 850, кофе 90 и Grab 220 бат»</strong></p></div> : null}
       {message ? <div className="user-bubble">{message.previewUrl ? <img src={message.previewUrl} alt="Фото чека" /> : null}<span>{message.text}</span></div> : null}
-      {entries.map((entry, index) => <ParsedExpenseCard key={entry.localId} label={entries.length > 1 ? `Расход ${index + 1} из ${entries.length}` : undefined} categories={categories.data} confidence={entry.confidence} warnings={entry.warnings} draft={entry.draft} isSaving={save.isPending} onSave={(value) => void trySave(entry.localId, value)} />)}
+      {entries.map((entry, index) => <ParsedExpenseCard key={entry.localId} label={entries.length > 1 ? `Расход ${index + 1} из ${entries.length}` : undefined} categories={categories.data} confidence={entry.confidence} warnings={entry.warnings} draft={entry.draft} isSaving={save.isPending} onCancel={() => cancelEntry(entry.localId)} onSave={(value) => trySave(entry.localId, value)} />)}
       {duplicate ? <div className="assistant-bubble duplicate-chat" role="alert"><strong>Похожий расход уже есть</strong><p>{duplicate.existing.merchant} · {(duplicate.existing.amountSatang / 100).toLocaleString('ru-RU')} ฿</p><div className="button-row"><button className="button secondary" type="button" onClick={() => setDuplicate(null)}>Вернуться</button><button className="button primary" type="button" onClick={() => void trySave(duplicate.localId, duplicate.value, true)}>Сохранить всё равно</button></div></div> : null}
       {success ? <div className="success-bubble"><Check size={19} /> Все расходы сохранены</div> : null}
       {save.isError ? <div className="composer-error" role="alert">{save.error.message}</div> : null}

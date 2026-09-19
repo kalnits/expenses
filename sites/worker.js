@@ -231,6 +231,30 @@ function normalizeMerchant(value) {
     .trim()
 }
 
+const CATEGORY_HINTS = [
+  { name: 'Спорт+хобби', terms: ['padel', 'paddle', 'падел', 'теннис', 'tournament', 'турнир', 'gym', 'fitness', 'спорт', 'йога', 'хобби'] },
+  { name: 'Кофе', terms: ['coffee', 'кофе', 'starbucks', 'amazon cafe'] },
+  { name: 'Массажи / recovery', terms: ['massage', 'массаж', 'recovery', 'spa', 'спа'] },
+  { name: 'Grab / такси', terms: ['taxi', 'такси', 'grab ride', 'bolt', 'indrive'] },
+  { name: '7-Eleven / снеки / напитки', terms: ['7 eleven', 'seven eleven', 'снеки', 'snack', 'напитки'] },
+  { name: 'Бензин', terms: ['fuel', 'petrol', 'gasoline', 'бензин', 'заправка'] },
+  { name: 'SIM', terms: ['sim', 'dtac', 'ais', 'mobile plan', 'мобильная связь'] },
+  { name: 'Страховки', terms: ['insurance', 'страховка', 'страхование'] },
+  { name: 'Коммуналка + интернет', terms: ['utilities', 'коммунал', 'electricity', 'электричество', 'internet', 'интернет', 'water bill'] },
+  { name: 'Жильё', terms: ['rent', 'аренда', 'condo', 'кондо', 'жильё', 'жилье'] },
+  { name: 'Байк', terms: ['motorbike', 'scooter rental', 'аренда байка', 'байк'] },
+  { name: 'Быт / laundry', terms: ['laundry', 'прачечная', 'стирка', 'cleaning', 'уборка'] },
+  { name: 'Продукты домой', terms: ['groceries', 'продукты', 'lotus', 'big c', 'makro', 'supermarket', 'супермаркет'] },
+  { name: 'Кафе / рестораны / доставка', terms: ['restaurant', 'ресторан', 'кафе', 'delivery', 'доставка', 'foodpanda', 'grab food'] },
+  { name: 'Развлечения / активности', terms: ['cinema', 'кино', 'concert', 'концерт', 'экскурсия', 'activity', 'активность'] },
+]
+
+function hintedCategory(categories, text) {
+  const haystack = normalizeMerchant(text)
+  const hint = CATEGORY_HINTS.find((candidate) => candidate.terms.some((term) => haystack.includes(normalizeMerchant(term))))
+  return hint ? categories.find((category) => normalizeName(category.name) === normalizeName(hint.name)) : undefined
+}
+
 function mapCategory(row) {
   return {
     id: row.id,
@@ -739,7 +763,7 @@ async function extractExpenses(env, context, content, transcript, receipt = fals
   const mode = receipt
     ? 'Это чек: верни ровно один расход по итоговой сумме; позиции используй только для названия и категории.'
     : 'Выдели каждый отдельно названный платёж или покупку как отдельный расход. Не объединяй несколько сумм в одну. Верни от 1 до 12 расходов в исходном порядке.'
-  const instructions = `${mode} Валюта по умолчанию THB; сумму верни в сатангах (1 THB = 100), если другая валюта не указана явно — добавь предупреждение и не конвертируй. Сегодня в Asia/Bangkok: ${today}. merchant — короткое понятное название расхода по-русски: место, если оно названо, иначе предмет или цель расхода; merchant никогда не должен быть пустым. Не выдумывай остальные отсутствующие данные: confidence ставь низкой. Для неизвестной даты используй ${today} и предупреждение. owner/paidFrom по умолчанию mutual с низкой уверенностью. Категории: ${JSON.stringify(context.categories)}. categoryId только из списка либо пустая строка. Заметки не должны содержать чековые позиции. Верни только объект схемы.`
+  const instructions = `${mode} Валюта по умолчанию THB; сумму верни в сатангах (1 THB = 100), если другая валюта не указана явно — добавь предупреждение и не конвертируй. Сегодня в Asia/Bangkok: ${today}. merchant — короткое понятное название расхода по-русски: место, если оно названо, иначе предмет или цель расхода; merchant никогда не должен быть пустым. Выбирай категорию по смыслу: падел, теннис, турниры, фитнес и спорт относятся к «Спорт+хобби». Не выдумывай остальные отсутствующие данные: confidence ставь низкой. Для неизвестной даты используй ${today} и предупреждение. owner/paidFrom по умолчанию mutual с низкой уверенностью. Категории: ${JSON.stringify(context.categories)}. categoryId только из списка либо пустая строка. Заметки не должны содержать чековые позиции. Верни только объект схемы.`
   const raw = await structuredResponse(env, [{ type: 'input_text', text: instructions }, ...content])
   if (!Array.isArray(raw?.expenses) || raw.expenses.length === 0) throw new HttpError(502, 'Сервис не смог распознать расходы.')
   const categoryIds = new Set(context.categories.map((category) => category.id))
@@ -755,7 +779,14 @@ async function extractExpenses(env, context, content, transcript, receipt = fals
       result.confidence.category = 1
       result.categoryEvidence = { categoryId: rule.category_id, source: 'merchant_rule' }
     } else {
-      result.categoryEvidence = { categoryId: detectedCategory, source: detectedCategory ? 'model' : 'none' }
+      const hinted = hintedCategory(context.categories, `${result.draft.merchant} ${result.draft.notes}`)
+      if (hinted) {
+        result.draft.categoryId = hinted.id
+        result.confidence.category = Math.max(result.confidence.category, .95)
+        result.categoryEvidence = { categoryId: hinted.id, source: 'keyword_rule' }
+      } else {
+        result.categoryEvidence = { categoryId: detectedCategory, source: detectedCategory ? 'model' : 'none' }
+      }
     }
     return result
   })

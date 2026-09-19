@@ -14,11 +14,12 @@ interface Props {
   draft: ExpenseDraft
   isSaving: boolean
   label?: string
+  onCancel: () => void
   onSave: (draft: ExpenseDraft) => void
   warnings?: string[]
 }
 
-export function ParsedExpenseCard({ categories, confidence, draft: initial, isSaving, label, onSave, warnings = [] }: Props) {
+export function ParsedExpenseCard({ categories, confidence, draft: initial, isSaving, label, onCancel, onSave, warnings = [] }: Props) {
   const [draft, setDraft] = useState(initial)
   const [amount, setAmount] = useState(initial.amountSatang ? String(initial.amountSatang / 100) : '')
   const [expanded, setExpanded] = useState(false)
@@ -50,6 +51,6 @@ export function ParsedExpenseCard({ categories, confidence, draft: initial, isSa
     </div> : null}
     {warnings.map((warning) => <p className="inline-warning" key={warning}>{warning}</p>)}
     {error ? <p className="error-text" role="alert">{error}</p> : null}
-    <button className="button save-expense" type="submit" disabled={isSaving}>{isSaving ? 'Сохраняем…' : 'Сохранить расход'}</button>
+    <div className="parsed-actions"><button className="button secondary" type="button" disabled={isSaving} onClick={onCancel}>Отмена</button><button className="button save-expense" type="submit" disabled={isSaving}>{isSaving ? 'Сохраняем…' : 'Сохранить расход'}</button></div>
   </form>
 }

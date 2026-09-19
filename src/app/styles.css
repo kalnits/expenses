@@ -317,6 +317,8 @@ legend { margin-bottom: 8px; color: #354c42; font-size: .88rem; font-weight: 750
 .needs-check { display: flex !important; grid-template-columns: none; align-items: center; gap: 9px !important; }
 .needs-check input { width: auto; }
 .save-expense { width: 100%; margin-top: 14px; padding: 14px 18px; border: 0; border-radius: 16px; color: #092f2b; background: var(--mint); font-weight: 900; box-shadow: 0 10px 24px rgb(75 220 170 / 25%); }
+.parsed-actions { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; margin-top: 14px; }
+.parsed-actions .save-expense { margin-top: 0; }
 .duplicate-chat { align-self: flex-start; width: min(100%, 560px); }
 .success-bubble { align-self: flex-start; color: #0a5948; background: #dff8ef; }
 

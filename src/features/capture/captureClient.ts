@@ -9,7 +9,7 @@ const draftSchema = z.object({
 const confidenceSchema = z.object({ amount: z.number().min(0).max(1), merchant: z.number().min(0).max(1), date: z.number().min(0).max(1), category: z.number().min(0).max(1), owner: z.number().min(0).max(1), paidFrom: z.number().min(0).max(1) }).strict()
 const capturedExpenseSchema = z.object({
   draft: draftSchema, confidence: confidenceSchema,
-  categoryEvidence: z.object({ categoryId: z.string(), source: z.enum(['model', 'merchant_rule', 'none']) }).strict().optional(), warnings: z.array(z.string()),
+  categoryEvidence: z.object({ categoryId: z.string(), source: z.enum(['model', 'merchant_rule', 'keyword_rule', 'none']) }).strict().optional(), warnings: z.array(z.string()),
 }).strict()
 const resultSchema = z.object({ expenses: z.array(capturedExpenseSchema).min(1).max(12), transcript: z.string().optional() }).strict()
 
