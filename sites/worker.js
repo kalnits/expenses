@@ -1178,7 +1178,10 @@ async function handleShortcutExpense(request, env) {
   const body = await readJson(request)
   const person = PEOPLE.has(body.person) ? body.person : null
   if (!person) throw new HttpError(400, 'person должен быть ilya или masha.')
-  const merchant = requiredString(body.merchant, 'Укажите merchant.', 200)
+  if (body.merchant !== undefined && typeof body.merchant !== 'string') throw new HttpError(400, 'merchant должен быть текстом.')
+  const merchantValue = typeof body.merchant === 'string' ? body.merchant.trim() : ''
+  if (merchantValue.length > 200) throw new HttpError(400, 'merchant должен быть короче 200 символов.')
+  const merchant = merchantValue || 'Apple Pay'
   const amount = typeof body.amount === 'number' ? body.amount : Number(body.amount)
   const amountMinor = Math.round(amount * 100)
   if (!Number.isFinite(amount) || amount <= 0 || !Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
@@ -1203,7 +1206,8 @@ async function handleShortcutExpense(request, env) {
 
   const context = await loadCaptureContext(env.DB)
   let categoryId = shortcutCategory(context, body.category, merchant, notes)
-  if (!categoryId) {
+  const genericMerchant = ['apple pay', 'test', 'тест'].includes(normalizeMerchant(merchant))
+  if (!categoryId && !genericMerchant) {
     try {
       const parsed = await extractExpenses(env, context, [{
         type: 'input_text',
