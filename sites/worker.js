@@ -1144,6 +1144,99 @@ async function handleTelegramWebhook(request, env, context) {
   return json({ ok: true })
 }
 
+function bangkokToday() {
+  return new Intl.DateTimeFormat('en-CA', {
+    day: '2-digit', month: '2-digit', timeZone: 'Asia/Bangkok', year: 'numeric',
+  }).format(new Date())
+}
+
+function authorizeShortcut(request, env) {
+  const expected = typeof env.SHORTCUT_API_TOKEN === 'string' ? env.SHORTCUT_API_TOKEN.trim() : ''
+  if (!expected) throw new HttpError(503, 'Интеграция Shortcuts ещё не настроена.')
+  if (request.headers.get('authorization') !== `Bearer ${expected}`) throw new HttpError(401, 'Неверный токен Shortcuts.')
+}
+
+function shortcutCategory(context, requested, merchant, notes) {
+  if (requested !== undefined) {
+    if (typeof requested !== 'string' || !requested.trim()) throw new HttpError(400, 'Проверьте category.')
+    const normalized = normalizeName(requested)
+    const match = context.categories.find((category) => category.id === requested || normalizeName(category.name) === normalized)
+    if (!match) throw new HttpError(400, 'Указанная категория не найдена.')
+    return match.id
+  }
+  const normalizedMerchant = normalizeMerchant(merchant)
+  const rule = context.rules.find((candidate) => candidate.normalized_merchant === normalizedMerchant)
+  if (rule) return rule.category_id
+  return hintedCategory(context.categories, `${merchant} ${notes}`)?.id || null
+}
+
+async function handleShortcutExpense(request, env) {
+  if (request.method !== 'POST') throw new HttpError(405, 'Метод не поддерживается.')
+  if (!env.DB) throw new HttpError(503, 'База данных сайта не настроена.')
+  authorizeShortcut(request, env)
+  await initializeDatabase(env.DB)
+  const body = await readJson(request)
+  const person = PEOPLE.has(body.person) ? body.person : null
+  if (!person) throw new HttpError(400, 'person должен быть ilya или masha.')
+  const merchant = requiredString(body.merchant, 'Укажите merchant.', 200)
+  const amount = typeof body.amount === 'number' ? body.amount : Number(body.amount)
+  const amountMinor = Math.round(amount * 100)
+  if (!Number.isFinite(amount) || amount <= 0 || !Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
+    throw new HttpError(400, 'amount должен быть положительным числом.')
+  }
+  const currency = body.currency ?? 'THB'
+  if (!EXPENSE_CURRENCIES.has(currency)) throw new HttpError(400, 'currency должен быть THB, ILS или USD.')
+  const expenseDate = body.expenseDate === undefined ? bangkokToday() : requireDate(body.expenseDate)
+  const owner = body.owner ?? 'mutual'
+  if (!OWNERS.has(owner)) throw new HttpError(400, 'owner должен быть mutual, ilya или masha.')
+  const paidFrom = body.paidFrom ?? person
+  if (!OWNERS.has(paidFrom)) throw new HttpError(400, 'paidFrom должен быть mutual, ilya или masha.')
+  const notes = typeof body.notes === 'string' ? body.notes.trim().slice(0, 4000) : ''
+  const requestedShare = body.ilyaSharePercent === undefined ? 50 : Number(body.ilyaSharePercent)
+  if (!Number.isFinite(requestedShare) || requestedShare < 0 || requestedShare > 100) {
+    throw new HttpError(400, 'ilyaSharePercent должен быть от 0 до 100.')
+  }
+  const ilyaShareBps = owner === 'ilya' ? 10_000 : owner === 'masha' ? 0 : Math.round(requestedShare * 100)
+  const telegramUser = await env.DB.prepare('SELECT telegram_user_id FROM telegram_users WHERE person = ?')
+    .bind(person).first()
+  if (!telegramUser) throw new HttpError(409, 'Сначала подключите Telegram для выбранного пользователя.')
+
+  const context = await loadCaptureContext(env.DB)
+  let categoryId = shortcutCategory(context, body.category, merchant, notes)
+  if (!categoryId) {
+    try {
+      const parsed = await extractExpenses(env, context, [{
+        type: 'input_text',
+        text: `Apple Pay: ${merchant}, ${amount} ${currency}, дата ${expenseDate}. Оплатил ${person}. ${notes}`,
+      }], undefined, false, person)
+      categoryId = parsed.expenses[0]?.draft.categoryId || null
+    } catch {
+      categoryId = null
+    }
+  }
+  const fallback = context.categories.find((category) => normalizeName(category.name) === normalizeName('Буфер')) || context.categories[0]
+  if (!categoryId && !fallback) throw new HttpError(400, 'Сначала создайте хотя бы одну категорию на сайте.')
+  const draft = {
+    amountMinor,
+    currency,
+    expenseDate,
+    merchant,
+    notes,
+    categoryId: categoryId || fallback.id,
+    owner,
+    paidFrom,
+    ilyaShareBps,
+  }
+  const pendingId = await createTelegramPending(env.DB, telegramUser.telegram_user_id, draft, 'text')
+  try {
+    await sendTelegramPreview(env, telegramUser.telegram_user_id, pendingId, draft, context.categories, 'Apple Pay — подтвердите расход')
+  } catch (error) {
+    await env.DB.prepare('DELETE FROM telegram_pending_expenses WHERE id = ?').bind(pendingId).run()
+    throw error
+  }
+  return json({ ok: true, previewId: pendingId, status: 'pending_confirmation', person }, 202)
+}
+
 async function handleCapture(request, env, db, url, identity) {
   if (request.method !== 'POST') throw new HttpError(405, 'Метод не поддерживается.')
   const kind = url.pathname.slice('/api/capture/'.length)
@@ -1210,6 +1303,9 @@ const worker = {
     const url = new URL(request.url)
     if (url.pathname === '/telegram/webhook') {
       try { return await handleTelegramWebhook(request, env, context) } catch (error) { return errorResponse(error) }
+    }
+    if (url.pathname === '/api/shortcuts/expense') {
+      try { return await handleShortcutExpense(request, env) } catch (error) { return errorResponse(error) }
     }
     if (url.pathname.startsWith('/api/')) {
       try { return await handleApi(request, env) } catch (error) { return errorResponse(error) }
