@@ -56,4 +56,8 @@ export const tables = {
     primaryKey: ['update_id'],
     columns: ['update_id', 'received_at'],
   },
+  telegramPendingExpenses: {
+    primaryKey: ['id'],
+    columns: ['id', 'telegram_user_id', 'draft_json', 'capture_method', 'status', 'created_at', 'updated_at'],
+  },
 } as const

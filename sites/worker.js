@@ -797,11 +797,13 @@ async function loadCaptureContext(db) {
   return { categories: categoryResult.results, rules: ruleResult.results }
 }
 
-async function extractExpenses(env, context, content, transcript, receipt = false, currentPerson = 'ilya') {
+async function extractExpenses(env, context, content, transcript, receipt = false, currentPerson = 'ilya', single = false) {
   const today = new Intl.DateTimeFormat('en-CA', {
     day: '2-digit', month: '2-digit', timeZone: 'Asia/Bangkok', year: 'numeric',
   }).format(new Date())
-  const mode = receipt
+  const mode = single
+    ? 'Это исправление одной карточки расхода: верни ровно один расход, сохрани неизменённые поля из текущей карточки и примени только указанное пользователем изменение.'
+    : receipt
     ? 'Это чек: верни ровно один расход по итоговой сумме; позиции используй только для названия и категории.'
     : 'Выдели каждый отдельно названный платёж или покупку как отдельный расход. Не объединяй несколько сумм в одну. Верни от 1 до 12 расходов в исходном порядке.'
   const instructions = `${mode} Верни исходную сумму в amountMinor (100 минорных единиц = 1 THB/ILS/USD) и currency. Бат/baht/฿ = THB, шекель/NIS/₪ = ILS, доллар/$ = USD. Валюта по умолчанию THB; не конвертируй сумму. Сегодня в Asia/Bangkok: ${today}. Текущий пользователь: ${currentPerson}. merchant — короткое понятное название расхода по-русски: место, если оно названо, иначе предмет или цель; не повторяй сумму и валюту, не оставляй пустым. Примеры: «турнир по паделу 900» → «Турнир по паделу», «кофе 120» → «Кофе», «Lotus 850» → «Lotus». owner означает чей бюджет: обычные совместные траты пары и траты “для нас” — mutual; явно личные — названный человек. Для mutual по умолчанию всегда ставь ilyaShareBps=5000 (50/50); меняй долю только если распределение явно указано. paidFrom означает фактический счёт: “я заплатил/а”, “с моей карты” и “с личного” означают ${currentPerson}; “Маша заплатила” — masha; “Илья заплатил” — ilya; “с общего счёта/карты” — mutual. Если владелец или плательщик не указан, используй mutual с низкой уверенностью. Выбирай categoryId только из списка и по смыслу названия/предмета, а не случайному слову. Категории: ${JSON.stringify(context.categories)}. Не выдумывай отсутствующие данные: confidence ставь низкой. Для неизвестной даты используй ${today} и предупреждение. Заметки не должны содержать чековые позиции. Верни только объект схемы.`
@@ -870,8 +872,8 @@ async function telegramApi(env, method, body) {
   return payload.result
 }
 
-async function sendTelegramMessage(env, chatId, text) {
-  return telegramApi(env, 'sendMessage', { chat_id: chatId, text })
+async function sendTelegramMessage(env, chatId, text, options = {}) {
+  return telegramApi(env, 'sendMessage', { chat_id: chatId, text, ...options })
 }
 
 async function downloadTelegramFile(env, fileId) {
@@ -914,53 +916,186 @@ async function claimTelegramUpdate(db, updateId) {
   return Boolean(result.meta.changes)
 }
 
-function telegramExpenseSummary(expenses, categories) {
-  const categoryNames = new Map(categories.map((category) => [category.id, category.name]))
-  const lines = expenses.map(({ draft }) => {
-    const amount = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2, minimumFractionDigits: 0 })
-      .format(draft.amountMinor / 100)
-    return `• ${draft.merchant} — ${amount} ${draft.currency} · ${categoryNames.get(draft.categoryId) || 'Без категории'}`
+function telegramExpenseCard(draft, categories, statusText = 'Проверьте расход') {
+  const category = categories.find((candidate) => candidate.id === draft.categoryId)?.name || 'Без категории'
+  const amount = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2, minimumFractionDigits: 0 })
+    .format(draft.amountMinor / 100)
+  const people = { ilya: 'Илья', masha: 'Маша', mutual: 'Общий' }
+  const lines = [
+    statusText,
+    '',
+    `🧾 ${draft.merchant}`,
+    `💰 ${amount} ${draft.currency}`,
+    `🗂 ${category}`,
+    `📅 ${draft.expenseDate}`,
+    `👥 Бюджет: ${people[draft.owner]}`,
+    `💳 Оплачено: ${people[draft.paidFrom]}`,
+  ]
+  if (draft.owner === 'mutual') lines.push(`⚖️ Илья ${Math.round(draft.ilyaShareBps / 100)}% · Маша ${100 - Math.round(draft.ilyaShareBps / 100)}%`)
+  if (draft.notes) lines.push(`📝 ${draft.notes.slice(0, 500)}`)
+  return lines.join('\n')
+}
+
+function telegramPreviewKeyboard(id) {
+  return {
+    inline_keyboard: [[
+      { text: '✅ Подтвердить', callback_data: `confirm:${id}` },
+      { text: '✏️ Изменить', callback_data: `edit:${id}` },
+    ]],
+  }
+}
+
+function normalizeTelegramDraft(item, context) {
+  const fallback = context.categories.find((category) => normalizeName(category.name) === normalizeName('Буфер')) || context.categories[0]
+  if (!fallback) throw new HttpError(400, 'Сначала создайте хотя бы одну категорию на сайте.')
+  if (!item.draft.categoryId) item.draft.categoryId = fallback.id
+  if (item.draft.owner === 'mutual' && !Number.isSafeInteger(item.draft.ilyaShareBps)) item.draft.ilyaShareBps = 5000
+  return item.draft
+}
+
+async function createTelegramPending(db, telegramUserId, draft, captureMethod) {
+  const id = crypto.randomUUID()
+  await db.prepare(`INSERT INTO telegram_pending_expenses
+    (id, telegram_user_id, draft_json, capture_method) VALUES (?, ?, ?, ?)`)
+    .bind(id, telegramUserId, JSON.stringify(draft), captureMethod).run()
+  return id
+}
+
+async function editingTelegramPending(db, telegramUserId) {
+  return db.prepare(`SELECT id, draft_json, capture_method FROM telegram_pending_expenses
+    WHERE telegram_user_id = ? AND status = 'editing' ORDER BY updated_at DESC LIMIT 1`)
+    .bind(telegramUserId).first()
+}
+
+async function sendTelegramPreview(env, chatId, id, draft, categories, heading) {
+  return sendTelegramMessage(env, chatId, telegramExpenseCard(draft, categories, heading), {
+    reply_markup: telegramPreviewKeyboard(id),
   })
-  return `Сохранено расходов: ${expenses.length}\n${lines.join('\n')}`
+}
+
+function telegramExpenseInput(draft, captureMethod) {
+  return {
+    originalAmountMinor: draft.amountMinor,
+    originalCurrency: draft.currency,
+    expenseDate: draft.expenseDate,
+    merchant: draft.merchant,
+    notes: draft.notes,
+    categoryId: draft.categoryId,
+    owner: draft.owner,
+    paidFrom: draft.paidFrom,
+    ilyaShareBps: draft.ilyaShareBps,
+    captureMethod,
+    duplicateConfirmed: false,
+  }
+}
+
+async function handleTelegramCallback(callback, env, identity, context) {
+  const match = typeof callback.data === 'string' && callback.data.match(/^(confirm|edit):([0-9a-f-]{36})$/i)
+  if (!match) {
+    await telegramApi(env, 'answerCallbackQuery', { callback_query_id: callback.id, text: 'Кнопка устарела.' })
+    return
+  }
+  const telegramUserId = String(callback.from.id)
+  const pending = await env.DB.prepare(`SELECT id, draft_json, capture_method, status
+    FROM telegram_pending_expenses WHERE id = ? AND telegram_user_id = ?`)
+    .bind(match[2], telegramUserId).first()
+  if (!pending || pending.status === 'confirmed') {
+    await telegramApi(env, 'answerCallbackQuery', { callback_query_id: callback.id, text: 'Этот расход уже обработан.' })
+    return
+  }
+  const draft = JSON.parse(pending.draft_json)
+  if (match[1] === 'edit') {
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE telegram_pending_expenses SET status = 'pending', updated_at = ?
+        WHERE telegram_user_id = ? AND status = 'editing'`).bind(new Date().toISOString(), telegramUserId),
+      env.DB.prepare(`UPDATE telegram_pending_expenses SET status = 'editing', updated_at = ?
+        WHERE id = ? AND telegram_user_id = ?`).bind(new Date().toISOString(), pending.id, telegramUserId),
+    ])
+    await telegramApi(env, 'answerCallbackQuery', { callback_query_id: callback.id, text: 'Напишите исправление.' })
+    await sendTelegramMessage(env, callback.message.chat.id,
+      `Что изменить в «${draft.merchant}»? Например: «сумма 450 бат, категория Кофе, оплатил Илья».`, {
+        reply_markup: { force_reply: true, selective: true },
+        reply_to_message_id: callback.message.message_id,
+      })
+    return
+  }
+
+  const claimed = await env.DB.prepare(`UPDATE telegram_pending_expenses
+    SET status = 'confirmed', updated_at = ? WHERE id = ? AND telegram_user_id = ? AND status != 'confirmed'`)
+    .bind(new Date().toISOString(), pending.id, telegramUserId).run()
+  if (!claimed.meta.changes) {
+    await telegramApi(env, 'answerCallbackQuery', { callback_query_id: callback.id, text: 'Этот расход уже сохранён.' })
+    return
+  }
+  try {
+    await createExpense(env.DB, identity, telegramExpenseInput(draft, pending.capture_method))
+  } catch (error) {
+    await env.DB.prepare(`UPDATE telegram_pending_expenses SET status = 'pending', updated_at = ?
+      WHERE id = ? AND telegram_user_id = ?`).bind(new Date().toISOString(), pending.id, telegramUserId).run()
+    throw error
+  }
+  await telegramApi(env, 'answerCallbackQuery', { callback_query_id: callback.id, text: 'Расход сохранён ✅' })
+  await telegramApi(env, 'editMessageText', {
+    chat_id: callback.message.chat.id,
+    message_id: callback.message.message_id,
+    text: telegramExpenseCard(draft, context.categories, '✅ Расход сохранён'),
+    reply_markup: { inline_keyboard: [] },
+  }).catch(() => undefined)
 }
 
 async function processTelegramUpdate(update, env) {
+  const callback = update?.callback_query
   const message = update?.message
-  const chatId = message?.chat?.id
+  const sourceMessage = message || callback?.message
+  const from = message?.from || callback?.from
+  const chatId = sourceMessage?.chat?.id
   try {
-    if (!message || message.chat?.type !== 'private' || !message.from?.id) return
+    if (!sourceMessage || sourceMessage.chat?.type !== 'private' || !from?.id) return
     await initializeDatabase(env.DB)
     if (!await claimTelegramUpdate(env.DB, update.update_id)) return
 
-    const text = typeof message.text === 'string' ? message.text.trim() : ''
+    const text = typeof message?.text === 'string' ? message.text.trim() : ''
     const linkedPerson = telegramLinkPerson(env, text)
     if (linkedPerson) {
-      await linkTelegramUser(env.DB, String(message.from.id), linkedPerson)
+      await linkTelegramUser(env.DB, String(from.id), linkedPerson)
       await sendTelegramMessage(env, chatId, `Готово — Telegram подключён как ${linkedPerson === 'ilya' ? 'Илья' : 'Маша'}. Теперь отправьте текст, голосовое или фото чека.`)
       return
     }
 
-    const identity = await telegramIdentity(env.DB, String(message.from.id))
+    const telegramUserId = String(from.id)
+    const identity = await telegramIdentity(env.DB, telegramUserId)
     if (!identity) {
       await sendTelegramMessage(env, chatId, 'Telegram не подключён. Откройте свою персональную ссылку подключения ещё раз.')
       return
     }
+    const context = await loadCaptureContext(env.DB)
+    if (callback) {
+      await handleTelegramCallback(callback, env, identity, context)
+      return
+    }
     if (/^\/(?:start|help)(?:@\w+)?$/i.test(text)) {
-      await sendTelegramMessage(env, chatId, 'Отправьте текст, голосовое или фото чека. Можно указать несколько расходов в одном сообщении — они сохранятся отдельно. Валюта по умолчанию: THB.')
+      await sendTelegramMessage(env, chatId, 'Отправьте текст, голосовое или фото чека. Можно указать несколько расходов в одном сообщении. Я покажу карточку каждого расхода перед сохранением.')
       return
     }
 
-    const context = await loadCaptureContext(env.DB)
+    const editing = await editingTelegramPending(env.DB, telegramUserId)
+    const editingDraft = editing ? JSON.parse(editing.draft_json) : null
     let captureMethod
     let captured
     if (text) {
       captureMethod = 'text'
-      captured = await extractExpenses(env, context, [{ type: 'input_text', text }], undefined, false, identity.person)
+      const content = editingDraft
+        ? [{ type: 'input_text', text: `Текущая карточка: ${JSON.stringify(editingDraft)}\nИсправление пользователя: ${text}` }]
+        : [{ type: 'input_text', text }]
+      captured = await extractExpenses(env, context, content, undefined, false, identity.person, Boolean(editingDraft))
     } else if (message.voice?.file_id) {
       captureMethod = 'voice'
       const downloaded = await downloadTelegramFile(env, message.voice.file_id)
       const transcript = await transcribe(env, new File([downloaded.buffer], 'voice.ogg', { type: 'audio/ogg' }))
-      captured = await extractExpenses(env, context, [{ type: 'input_text', text: transcript }], transcript, false, identity.person)
+      const content = editingDraft
+        ? [{ type: 'input_text', text: `Текущая карточка: ${JSON.stringify(editingDraft)}\nИсправление пользователя: ${transcript}` }]
+        : [{ type: 'input_text', text: transcript }]
+      captured = await extractExpenses(env, context, content, transcript, false, identity.person, Boolean(editingDraft))
     } else if (Array.isArray(message.photo) && message.photo.length) {
       captureMethod = 'receipt'
       const downloaded = await downloadTelegramFile(env, message.photo.at(-1).file_id)
@@ -978,26 +1113,20 @@ async function processTelegramUpdate(update, env) {
       return
     }
 
-    const fallbackCategory = context.categories.find((category) => normalizeName(category.name) === normalizeName('Буфер')) || context.categories[0]
-    if (!fallbackCategory) throw new HttpError(400, 'Сначала создайте хотя бы одну категорию на сайте.')
-    for (const item of captured.expenses) {
-      if (!item.draft.categoryId) item.draft.categoryId = fallbackCategory.id
-      if (item.draft.owner === 'mutual' && !Number.isSafeInteger(item.draft.ilyaShareBps)) item.draft.ilyaShareBps = 5000
-      await createExpense(env.DB, identity, {
-        originalAmountMinor: item.draft.amountMinor,
-        originalCurrency: item.draft.currency,
-        expenseDate: item.draft.expenseDate,
-        merchant: item.draft.merchant,
-        notes: item.draft.notes,
-        categoryId: item.draft.categoryId,
-        owner: item.draft.owner,
-        paidFrom: item.draft.paidFrom,
-        ilyaShareBps: item.draft.ilyaShareBps,
-        captureMethod,
-        duplicateConfirmed: false,
-      })
+    if (editing) {
+      const draft = normalizeTelegramDraft(captured.expenses[0], context)
+      await env.DB.prepare(`UPDATE telegram_pending_expenses
+        SET draft_json = ?, capture_method = ?, status = 'pending', updated_at = ?
+        WHERE id = ? AND telegram_user_id = ?`)
+        .bind(JSON.stringify(draft), captureMethod, new Date().toISOString(), editing.id, telegramUserId).run()
+      await sendTelegramPreview(env, chatId, editing.id, draft, context.categories, 'Обновлённая карточка')
+      return
     }
-    await sendTelegramMessage(env, chatId, telegramExpenseSummary(captured.expenses, context.categories))
+    for (const item of captured.expenses) {
+      const draft = normalizeTelegramDraft(item, context)
+      const id = await createTelegramPending(env.DB, telegramUserId, draft, captureMethod)
+      await sendTelegramPreview(env, chatId, id, draft, context.categories, 'Проверьте расход перед сохранением')
+    }
   } catch (error) {
     if (!chatId) return
     const messageText = error instanceof HttpError ? error.message : 'Не удалось добавить расход. Попробуйте отправить его ещё раз.'
