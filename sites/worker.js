@@ -12,6 +12,7 @@ const PEOPLE = new Set(['ilya', 'masha'])
 const OWNERS = new Set(['ilya', 'masha', 'mutual'])
 const BUDGET_CURRENCIES = new Set(['THB', 'ILS'])
 const EXPENSE_CURRENCIES = new Set(['THB', 'ILS', 'USD'])
+const answeredTelegramCallbacks = new WeakSet()
 const CAPTURE_METHODS = new Set(['manual', 'text', 'voice', 'receipt'])
 const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS categories (
@@ -624,18 +625,27 @@ async function fetchWithTimeout(url, init, timeoutMs) {
 }
 
 async function fetchExactRate(date) {
-  const urls = [
-    `https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@${date}/v1/currencies/thb.min.json`,
-    `https://${date}.currency-api.pages.dev/v1/currencies/thb.min.json`,
+  const sources = [
+    { url: `https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@${date}/v1/currencies/thb.min.json`, exact: true },
+    { url: `https://${date}.currency-api.pages.dev/v1/currencies/thb.min.json`, exact: true },
   ]
-  for (const url of urls) {
+  if (date === bangkokToday()) {
+    sources.push(
+      { url: 'https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/thb.min.json', exact: false },
+      { url: 'https://latest.currency-api.pages.dev/v1/currencies/thb.min.json', exact: false },
+    )
+  }
+  for (const source of sources) {
     try {
-      const response = await fetchWithTimeout(url, { headers: { Accept: 'application/json' } }, 8_000)
+      const response = await fetchWithTimeout(source.url, { headers: { Accept: 'application/json' } }, 8_000)
       if (!response.ok) continue
       const payload = await response.json()
       const usdPerThb = positiveNumberOrNull(payload?.thb?.usd)
       const ilsPerThb = positiveNumberOrNull(payload?.thb?.ils)
-      if (payload?.date === date && usdPerThb && ilsPerThb) {
+      const acceptableDate = source.exact
+        ? payload?.date === date
+        : isExactDate(payload?.date) && payload.date <= date
+      if (acceptableDate && usdPerThb && ilsPerThb) {
         return { rateDate: date, usdPerThb, ilsPerThb }
       }
     } catch (error) {
@@ -872,6 +882,15 @@ async function telegramApi(env, method, body) {
   return payload.result
 }
 
+async function answerTelegramCallback(env, callback, text) {
+  if (answeredTelegramCallbacks.has(callback)) return
+  await telegramApi(env, 'answerCallbackQuery', {
+    callback_query_id: callback.id,
+    ...(text ? { text } : {}),
+  })
+  answeredTelegramCallbacks.add(callback)
+}
+
 async function sendTelegramMessage(env, chatId, text, options = {}) {
   return telegramApi(env, 'sendMessage', { chat_id: chatId, text, ...options })
 }
@@ -1062,7 +1081,7 @@ async function handleTelegramCallback(callback, env, identity, context) {
   const selection = data.match(/^(ec|eo|ep|es|eu):([0-9a-f-]{36}):(.+)$/i)
   const pendingId = simple?.[2] || menu?.[1] || selection?.[2]
   if (!pendingId) {
-    await telegramApi(env, 'answerCallbackQuery', { callback_query_id: callback.id, text: 'Кнопка устарела.' })
+    await answerTelegramCallback(env, callback, 'Кнопка устарела.')
     return
   }
   const telegramUserId = String(callback.from.id)
@@ -1070,7 +1089,7 @@ async function handleTelegramCallback(callback, env, identity, context) {
     FROM telegram_pending_expenses WHERE id = ? AND telegram_user_id = ?`)
     .bind(pendingId, telegramUserId).first()
   if (!pending || pending.status === 'confirmed') {
-    await telegramApi(env, 'answerCallbackQuery', { callback_query_id: callback.id, text: 'Этот расход уже обработан.' })
+    await answerTelegramCallback(env, callback, 'Этот расход уже обработан.')
     return
   }
   const draft = JSON.parse(pending.draft_json)
@@ -1079,7 +1098,7 @@ async function handleTelegramCallback(callback, env, identity, context) {
   if (simple?.[1] === 'cancel') {
     await env.DB.prepare('DELETE FROM telegram_pending_expenses WHERE id = ? AND telegram_user_id = ?')
       .bind(pending.id, telegramUserId).run()
-    await telegramApi(env, 'answerCallbackQuery', { callback_query_id: callback.id, text: 'Расход отменён' })
+    await answerTelegramCallback(env, callback, 'Расход отменён')
     await updateTelegramCard(env, callback, draft, context.categories, '❌ Расход отменён', { inline_keyboard: [] })
       .catch(() => undefined)
     return
@@ -1088,7 +1107,7 @@ async function handleTelegramCallback(callback, env, identity, context) {
   if (simple?.[1] === 'edit') {
     await env.DB.prepare(`UPDATE telegram_pending_expenses SET status = 'pending', updated_at = ?
       WHERE id = ? AND telegram_user_id = ?`).bind(now, pending.id, telegramUserId).run()
-    await telegramApi(env, 'answerCallbackQuery', { callback_query_id: callback.id })
+    await answerTelegramCallback(env, callback)
     await updateTelegramCard(env, callback, draft, context.categories, '✏️ Что изменить?', telegramEditKeyboard(pending.id))
     return
   }
@@ -1096,13 +1115,13 @@ async function handleTelegramCallback(callback, env, identity, context) {
   if (simple?.[1] === 'back') {
     await env.DB.prepare(`UPDATE telegram_pending_expenses SET status = 'pending', updated_at = ?
       WHERE id = ? AND telegram_user_id = ?`).bind(now, pending.id, telegramUserId).run()
-    await telegramApi(env, 'answerCallbackQuery', { callback_query_id: callback.id })
+    await answerTelegramCallback(env, callback)
     await updateTelegramCard(env, callback, draft, context.categories, 'Проверьте расход перед сохранением', telegramPreviewKeyboard(pending.id))
     return
   }
 
   if (menu) {
-    await telegramApi(env, 'answerCallbackQuery', { callback_query_id: callback.id })
+    await answerTelegramCallback(env, callback)
     await updateTelegramCard(env, callback, draft, context.categories, 'Выберите новое значение',
       telegramPickerKeyboard(pending.id, menu[2].toLowerCase(), context.categories))
     return
@@ -1123,12 +1142,12 @@ async function handleTelegramCallback(callback, env, identity, context) {
       draft.ilyaShareBps = Number(value)
     } else if (kind === 'eu' && EXPENSE_CURRENCIES.has(value)) draft.currency = value
     else {
-      await telegramApi(env, 'answerCallbackQuery', { callback_query_id: callback.id, text: 'Значение устарело.' })
+      await answerTelegramCallback(env, callback, 'Значение устарело.')
       return
     }
     await env.DB.prepare(`UPDATE telegram_pending_expenses SET draft_json = ?, status = 'pending', updated_at = ?
       WHERE id = ? AND telegram_user_id = ?`).bind(JSON.stringify(draft), now, pending.id, telegramUserId).run()
-    await telegramApi(env, 'answerCallbackQuery', { callback_query_id: callback.id, text: 'Обновлено' })
+    await answerTelegramCallback(env, callback, 'Обновлено')
     await updateTelegramCard(env, callback, draft, context.categories, '✏️ Что изменить?', telegramEditKeyboard(pending.id))
     return
   }
@@ -1140,7 +1159,7 @@ async function handleTelegramCallback(callback, env, identity, context) {
       env.DB.prepare(`UPDATE telegram_pending_expenses SET status = 'editing', updated_at = ?
         WHERE id = ? AND telegram_user_id = ?`).bind(now, pending.id, telegramUserId),
     ])
-    await telegramApi(env, 'answerCallbackQuery', { callback_query_id: callback.id, text: 'Напишите новое значение.' })
+    await answerTelegramCallback(env, callback, 'Напишите новое значение.')
     await sendTelegramMessage(env, callback.message.chat.id,
       `Что изменить в «${draft.merchant}»? Например: «сумма 450», «название Lotus», «дата 2026-10-06» или «заметка — продукты».`, {
         reply_markup: { force_reply: true, selective: true },
@@ -1153,7 +1172,7 @@ async function handleTelegramCallback(callback, env, identity, context) {
     SET status = 'confirmed', updated_at = ? WHERE id = ? AND telegram_user_id = ? AND status != 'confirmed'`)
     .bind(new Date().toISOString(), pending.id, telegramUserId).run()
   if (!claimed.meta.changes) {
-    await telegramApi(env, 'answerCallbackQuery', { callback_query_id: callback.id, text: 'Этот расход уже сохранён.' })
+    await answerTelegramCallback(env, callback, 'Этот расход уже сохранён.')
     return
   }
   try {
@@ -1163,7 +1182,7 @@ async function handleTelegramCallback(callback, env, identity, context) {
       WHERE id = ? AND telegram_user_id = ?`).bind(new Date().toISOString(), pending.id, telegramUserId).run()
     throw error
   }
-  await telegramApi(env, 'answerCallbackQuery', { callback_query_id: callback.id, text: 'Расход сохранён ✅' })
+  await answerTelegramCallback(env, callback, 'Расход сохранён ✅')
   await telegramApi(env, 'editMessageText', {
     chat_id: callback.message.chat.id,
     message_id: callback.message.message_id,
@@ -1180,7 +1199,10 @@ async function processTelegramUpdate(update, env) {
   const chatId = sourceMessage?.chat?.id
   try {
     if (!sourceMessage || sourceMessage.chat?.type !== 'private' || !from?.id) return
-    await initializeDatabase(env.DB)
+    await Promise.all([
+      initializeDatabase(env.DB),
+      callback ? answerTelegramCallback(env, callback).catch(() => undefined) : Promise.resolve(),
+    ])
     if (!await claimTelegramUpdate(env.DB, update.update_id)) return
 
     const text = typeof message?.text === 'string' ? message.text.trim() : ''
@@ -1192,12 +1214,14 @@ async function processTelegramUpdate(update, env) {
     }
 
     const telegramUserId = String(from.id)
-    const identity = await telegramIdentity(env.DB, telegramUserId)
+    const identityPromise = telegramIdentity(env.DB, telegramUserId)
+    const contextPromise = loadCaptureContext(env.DB)
+    const identity = await identityPromise
     if (!identity) {
       await sendTelegramMessage(env, chatId, 'Telegram не подключён. Откройте свою персональную ссылку подключения ещё раз.')
       return
     }
-    const context = await loadCaptureContext(env.DB)
+    const context = await contextPromise
     if (callback) {
       await handleTelegramCallback(callback, env, identity, context)
       return
