@@ -47,4 +47,13 @@ export const tables = {
     primaryKey: ['rate_date'],
     columns: ['rate_date', 'usd_per_thb', 'ils_per_thb', 'fetched_at'],
   },
+  telegramUsers: {
+    primaryKey: ['telegram_user_id'],
+    unique: [['person']],
+    columns: ['telegram_user_id', 'person', 'created_at'],
+  },
+  telegramUpdates: {
+    primaryKey: ['update_id'],
+    columns: ['update_id', 'received_at'],
+  },
 } as const

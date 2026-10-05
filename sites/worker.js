@@ -453,6 +453,24 @@ async function convertExpenseInput(db, input) {
   return { ...input, amountSatang, usdPerThb: rate.usdPerThb, ilsPerThb: rate.ilsPerThb }
 }
 
+async function createExpense(db, identity, value) {
+  const input = await convertExpenseInput(db, validateExpense(value))
+  await ensureCategory(db, input.categoryId)
+  const id = crypto.randomUUID()
+  await db.prepare(`INSERT INTO expenses
+    (id, household_id, amount_satang, capture_method, category_id, created_by,
+     duplicate_confirmed, expense_date, ilya_share_bps, merchant,
+     normalized_merchant, notes, owner, original_amount_minor, original_currency,
+     paid_from, usd_per_thb, ils_per_thb)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(id, HOUSEHOLD_ID, input.amountSatang, input.captureMethod, input.categoryId,
+      identity.userId, input.duplicateConfirmed ? 1 : 0, input.expenseDate,
+      input.ilyaShareBps, input.merchant, input.normalizedMerchant, input.notes,
+      input.owner, input.originalAmountMinor, input.originalCurrency, input.paidFrom,
+      input.usdPerThb, input.ilsPerThb).run()
+  return mapExpense(await expenseById(db, id))
+}
+
 async function handleExpenses(request, db, identity, url) {
   const segments = url.pathname.split('/').filter(Boolean)
   if (segments.length === 2 && request.method === 'GET') {
@@ -472,21 +490,7 @@ async function handleExpenses(request, db, identity, url) {
     return json(row ? mapExpense(row) : null)
   }
   if (segments.length === 2 && request.method === 'POST') {
-    const input = await convertExpenseInput(db, validateExpense(await readJson(request)))
-    await ensureCategory(db, input.categoryId)
-    const id = crypto.randomUUID()
-    await db.prepare(`INSERT INTO expenses
-      (id, household_id, amount_satang, capture_method, category_id, created_by,
-       duplicate_confirmed, expense_date, ilya_share_bps, merchant,
-       normalized_merchant, notes, owner, original_amount_minor, original_currency,
-       paid_from, usd_per_thb, ils_per_thb)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(id, HOUSEHOLD_ID, input.amountSatang, input.captureMethod, input.categoryId,
-        identity.userId, input.duplicateConfirmed ? 1 : 0, input.expenseDate,
-        input.ilyaShareBps, input.merchant, input.normalizedMerchant, input.notes,
-        input.owner, input.originalAmountMinor, input.originalCurrency, input.paidFrom,
-        input.usdPerThb, input.ilsPerThb).run()
-    return json(mapExpense(await expenseById(db, id)), 201)
+    return json(await createExpense(db, identity, await readJson(request)), 201)
   }
   const id = decodeURIComponent(segments[2] || '')
   if (!id || segments.length !== 3) throw new HttpError(404, 'Маршрут не найден.')
@@ -800,7 +804,7 @@ async function extractExpenses(env, context, content, transcript, receipt = fals
   const mode = receipt
     ? 'Это чек: верни ровно один расход по итоговой сумме; позиции используй только для названия и категории.'
     : 'Выдели каждый отдельно названный платёж или покупку как отдельный расход. Не объединяй несколько сумм в одну. Верни от 1 до 12 расходов в исходном порядке.'
-  const instructions = `${mode} Верни исходную сумму в amountMinor (100 минорных единиц = 1 THB/ILS/USD) и currency. Бат/baht/฿ = THB, шекель/NIS/₪ = ILS, доллар/$ = USD. Валюта по умолчанию THB; не конвертируй сумму. Сегодня в Asia/Bangkok: ${today}. Текущий пользователь: ${currentPerson}. merchant — короткое понятное название расхода по-русски: место, если оно названо, иначе предмет или цель; не повторяй сумму и валюту, не оставляй пустым. Примеры: «турнир по паделу 900» → «Турнир по паделу», «кофе 120» → «Кофе», «Lotus 850» → «Lotus». owner означает чей бюджет: обычные совместные траты пары и траты “для нас” — mutual; явно личные — названный человек. paidFrom означает фактический счёт: “я заплатил/а”, “с моей карты” и “с личного” означают ${currentPerson}; “Маша заплатила” — masha; “Илья заплатил” — ilya; “с общего счёта/карты” — mutual. Если владелец или плательщик не указан, используй mutual с низкой уверенностью. Выбирай categoryId только из списка и по смыслу названия/предмета, а не случайному слову. Категории: ${JSON.stringify(context.categories)}. Не выдумывай отсутствующие данные: confidence ставь низкой. Для неизвестной даты используй ${today} и предупреждение. Заметки не должны содержать чековые позиции. Верни только объект схемы.`
+  const instructions = `${mode} Верни исходную сумму в amountMinor (100 минорных единиц = 1 THB/ILS/USD) и currency. Бат/baht/฿ = THB, шекель/NIS/₪ = ILS, доллар/$ = USD. Валюта по умолчанию THB; не конвертируй сумму. Сегодня в Asia/Bangkok: ${today}. Текущий пользователь: ${currentPerson}. merchant — короткое понятное название расхода по-русски: место, если оно названо, иначе предмет или цель; не повторяй сумму и валюту, не оставляй пустым. Примеры: «турнир по паделу 900» → «Турнир по паделу», «кофе 120» → «Кофе», «Lotus 850» → «Lotus». owner означает чей бюджет: обычные совместные траты пары и траты “для нас” — mutual; явно личные — названный человек. Для mutual по умолчанию всегда ставь ilyaShareBps=5000 (50/50); меняй долю только если распределение явно указано. paidFrom означает фактический счёт: “я заплатил/а”, “с моей карты” и “с личного” означают ${currentPerson}; “Маша заплатила” — masha; “Илья заплатил” — ilya; “с общего счёта/карты” — mutual. Если владелец или плательщик не указан, используй mutual с низкой уверенностью. Выбирай categoryId только из списка и по смыслу названия/предмета, а не случайному слову. Категории: ${JSON.stringify(context.categories)}. Не выдумывай отсутствующие данные: confidence ставь низкой. Для неизвестной даты используй ${today} и предупреждение. Заметки не должны содержать чековые позиции. Верни только объект схемы.`
   const raw = await structuredResponse(env, [{ type: 'input_text', text: instructions }, ...content])
   if (!Array.isArray(raw?.expenses) || raw.expenses.length === 0) throw new HttpError(502, 'Сервис не смог распознать расходы.')
   const categoryIds = new Set(context.categories.map((category) => category.id))
@@ -852,6 +856,163 @@ function bytesToBase64(bytes) {
     binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
   }
   return btoa(binary)
+}
+
+async function telegramApi(env, method, body) {
+  const token = requiredString(env.TELEGRAM_BOT_TOKEN, 'Telegram-бот ещё не настроен.')
+  const response = await fetchWithTimeout(`https://api.telegram.org/bot${token}/${method}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }, 15_000)
+  const payload = await response.json().catch(() => null)
+  if (!response.ok || !payload?.ok) throw new HttpError(502, 'Telegram временно недоступен.')
+  return payload.result
+}
+
+async function sendTelegramMessage(env, chatId, text) {
+  return telegramApi(env, 'sendMessage', { chat_id: chatId, text })
+}
+
+async function downloadTelegramFile(env, fileId) {
+  const file = await telegramApi(env, 'getFile', { file_id: fileId })
+  if (typeof file?.file_path !== 'string' || !file.file_path) throw new HttpError(502, 'Не удалось скачать файл из Telegram.')
+  const token = requiredString(env.TELEGRAM_BOT_TOKEN, 'Telegram-бот ещё не настроен.')
+  const response = await fetchWithTimeout(`https://api.telegram.org/file/bot${token}/${file.file_path}`, {}, 20_000)
+  if (!response.ok) throw new HttpError(502, 'Не удалось скачать файл из Telegram.')
+  const buffer = await response.arrayBuffer()
+  if (!buffer.byteLength || buffer.byteLength > 20 * 1024 * 1024) throw new HttpError(400, 'Файл должен быть размером до 20 МБ.')
+  return { buffer, contentType: response.headers.get('content-type')?.split(';')[0] || '' }
+}
+
+function telegramLinkPerson(env, text) {
+  const match = text.match(/^\/(?:start|link)(?:@\w+)?(?:\s+(\S+))?$/i)
+  if (!match?.[1]) return null
+  if (match[1] === env.TELEGRAM_ILYA_LINK_CODE) return 'ilya'
+  if (match[1] === env.TELEGRAM_MASHA_LINK_CODE) return 'masha'
+  return null
+}
+
+async function linkTelegramUser(db, telegramUserId, person) {
+  await db.batch([
+    db.prepare('DELETE FROM telegram_users WHERE telegram_user_id = ? OR person = ?').bind(telegramUserId, person),
+    db.prepare('INSERT INTO telegram_users (telegram_user_id, person) VALUES (?, ?)').bind(telegramUserId, person),
+  ])
+}
+
+async function telegramIdentity(db, telegramUserId) {
+  const row = await db.prepare('SELECT person FROM telegram_users WHERE telegram_user_id = ?')
+    .bind(telegramUserId).first()
+  return row && PEOPLE.has(row.person)
+    ? { person: row.person, userId: `telegram:${telegramUserId}` }
+    : null
+}
+
+async function claimTelegramUpdate(db, updateId) {
+  if (!Number.isSafeInteger(updateId)) return false
+  const result = await db.prepare('INSERT OR IGNORE INTO telegram_updates (update_id) VALUES (?)').bind(updateId).run()
+  return Boolean(result.meta.changes)
+}
+
+function telegramExpenseSummary(expenses, categories) {
+  const categoryNames = new Map(categories.map((category) => [category.id, category.name]))
+  const lines = expenses.map(({ draft }) => {
+    const amount = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2, minimumFractionDigits: 0 })
+      .format(draft.amountMinor / 100)
+    return `• ${draft.merchant} — ${amount} ${draft.currency} · ${categoryNames.get(draft.categoryId) || 'Без категории'}`
+  })
+  return `Сохранено расходов: ${expenses.length}\n${lines.join('\n')}`
+}
+
+async function processTelegramUpdate(update, env) {
+  const message = update?.message
+  const chatId = message?.chat?.id
+  try {
+    if (!message || message.chat?.type !== 'private' || !message.from?.id) return
+    await initializeDatabase(env.DB)
+    if (!await claimTelegramUpdate(env.DB, update.update_id)) return
+
+    const text = typeof message.text === 'string' ? message.text.trim() : ''
+    const linkedPerson = telegramLinkPerson(env, text)
+    if (linkedPerson) {
+      await linkTelegramUser(env.DB, String(message.from.id), linkedPerson)
+      await sendTelegramMessage(env, chatId, `Готово — Telegram подключён как ${linkedPerson === 'ilya' ? 'Илья' : 'Маша'}. Теперь отправьте текст, голосовое или фото чека.`)
+      return
+    }
+
+    const identity = await telegramIdentity(env.DB, String(message.from.id))
+    if (!identity) {
+      await sendTelegramMessage(env, chatId, 'Telegram не подключён. Откройте свою персональную ссылку подключения ещё раз.')
+      return
+    }
+    if (/^\/(?:start|help)(?:@\w+)?$/i.test(text)) {
+      await sendTelegramMessage(env, chatId, 'Отправьте текст, голосовое или фото чека. Можно указать несколько расходов в одном сообщении — они сохранятся отдельно. Валюта по умолчанию: THB.')
+      return
+    }
+
+    const context = await loadCaptureContext(env.DB)
+    let captureMethod
+    let captured
+    if (text) {
+      captureMethod = 'text'
+      captured = await extractExpenses(env, context, [{ type: 'input_text', text }], undefined, false, identity.person)
+    } else if (message.voice?.file_id) {
+      captureMethod = 'voice'
+      const downloaded = await downloadTelegramFile(env, message.voice.file_id)
+      const transcript = await transcribe(env, new File([downloaded.buffer], 'voice.ogg', { type: 'audio/ogg' }))
+      captured = await extractExpenses(env, context, [{ type: 'input_text', text: transcript }], transcript, false, identity.person)
+    } else if (Array.isArray(message.photo) && message.photo.length) {
+      captureMethod = 'receipt'
+      const downloaded = await downloadTelegramFile(env, message.photo.at(-1).file_id)
+      const contentType = ['image/jpeg', 'image/png', 'image/webp'].includes(downloaded.contentType)
+        ? downloaded.contentType : 'image/jpeg'
+      const hint = typeof message.caption === 'string' && message.caption.trim()
+        ? `Подпись пользователя: ${message.caption.trim()}`
+        : 'Распознай итоговую сумму, магазин/место и дату.'
+      captured = await extractExpenses(env, context, [
+        { type: 'input_text', text: hint },
+        { type: 'input_image', image_url: `data:${contentType};base64,${bytesToBase64(new Uint8Array(downloaded.buffer))}` },
+      ], undefined, true, identity.person)
+    } else {
+      await sendTelegramMessage(env, chatId, 'Поддерживаются текст, голосовые сообщения и фото чеков.')
+      return
+    }
+
+    const fallbackCategory = context.categories.find((category) => normalizeName(category.name) === normalizeName('Буфер')) || context.categories[0]
+    if (!fallbackCategory) throw new HttpError(400, 'Сначала создайте хотя бы одну категорию на сайте.')
+    for (const item of captured.expenses) {
+      if (!item.draft.categoryId) item.draft.categoryId = fallbackCategory.id
+      if (item.draft.owner === 'mutual' && !Number.isSafeInteger(item.draft.ilyaShareBps)) item.draft.ilyaShareBps = 5000
+      await createExpense(env.DB, identity, {
+        originalAmountMinor: item.draft.amountMinor,
+        originalCurrency: item.draft.currency,
+        expenseDate: item.draft.expenseDate,
+        merchant: item.draft.merchant,
+        notes: item.draft.notes,
+        categoryId: item.draft.categoryId,
+        owner: item.draft.owner,
+        paidFrom: item.draft.paidFrom,
+        ilyaShareBps: item.draft.ilyaShareBps,
+        captureMethod,
+        duplicateConfirmed: false,
+      })
+    }
+    await sendTelegramMessage(env, chatId, telegramExpenseSummary(captured.expenses, context.categories))
+  } catch (error) {
+    if (!chatId) return
+    const messageText = error instanceof HttpError ? error.message : 'Не удалось добавить расход. Попробуйте отправить его ещё раз.'
+    await sendTelegramMessage(env, chatId, `Не получилось: ${messageText}`).catch(() => undefined)
+  }
+}
+
+async function handleTelegramWebhook(request, env, context) {
+  if (request.method !== 'POST') throw new HttpError(405, 'Метод не поддерживается.')
+  if (!env.DB || !env.TELEGRAM_WEBHOOK_SECRET || request.headers.get('x-telegram-bot-api-secret-token') !== env.TELEGRAM_WEBHOOK_SECRET) {
+    throw new HttpError(403, 'Доступ запрещён.')
+  }
+  const update = await readJson(request)
+  context.waitUntil(processTelegramUpdate(update, env))
+  return json({ ok: true })
 }
 
 async function handleCapture(request, env, db, url, identity) {
@@ -916,8 +1077,11 @@ async function handleApi(request, env) {
 }
 
 const worker = {
-  async fetch(request, env) {
+  async fetch(request, env, context) {
     const url = new URL(request.url)
+    if (url.pathname === '/telegram/webhook') {
+      try { return await handleTelegramWebhook(request, env, context) } catch (error) { return errorResponse(error) }
+    }
     if (url.pathname.startsWith('/api/')) {
       try { return await handleApi(request, env) } catch (error) { return errorResponse(error) }
     }
