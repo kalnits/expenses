@@ -938,11 +938,68 @@ function telegramExpenseCard(draft, categories, statusText = 'Проверьте
 
 function telegramPreviewKeyboard(id) {
   return {
-    inline_keyboard: [[
-      { text: '✅ Подтвердить', callback_data: `confirm:${id}` },
-      { text: '✏️ Изменить', callback_data: `edit:${id}` },
-    ]],
+    inline_keyboard: [
+      [
+        { text: '✅ Подтвердить', callback_data: `confirm:${id}` },
+        { text: '✏️ Изменить', callback_data: `edit:${id}` },
+      ],
+      [{ text: '❌ Отменить', callback_data: `cancel:${id}` }],
+    ],
   }
+}
+
+function telegramEditKeyboard(id) {
+  return {
+    inline_keyboard: [
+      [
+        { text: '🗂 Категория', callback_data: `m:${id}:category` },
+        { text: '👥 Бюджет', callback_data: `m:${id}:owner` },
+      ],
+      [
+        { text: '💳 Оплачено', callback_data: `m:${id}:payer` },
+        { text: '⚖️ Доля', callback_data: `m:${id}:split` },
+      ],
+      [
+        { text: '💱 Валюта', callback_data: `m:${id}:currency` },
+        { text: '✍️ Другие поля', callback_data: `et:${id}` },
+      ],
+      [{ text: '✅ Готово', callback_data: `back:${id}` }],
+      [{ text: '❌ Отменить расход', callback_data: `cancel:${id}` }],
+    ],
+  }
+}
+
+function telegramPickerKeyboard(id, kind, categories) {
+  let buttons
+  if (kind === 'category') {
+    buttons = categories.map((category, index) => ({ text: category.name, callback_data: `ec:${id}:${index}` }))
+  } else if (kind === 'owner') {
+    buttons = [
+      { text: 'Общий', callback_data: `eo:${id}:mutual` },
+      { text: 'Илья', callback_data: `eo:${id}:ilya` },
+      { text: 'Маша', callback_data: `eo:${id}:masha` },
+    ]
+  } else if (kind === 'payer') {
+    buttons = [
+      { text: 'Общий счёт', callback_data: `ep:${id}:mutual` },
+      { text: 'Илья', callback_data: `ep:${id}:ilya` },
+      { text: 'Маша', callback_data: `ep:${id}:masha` },
+    ]
+  } else if (kind === 'split') {
+    buttons = [
+      { text: '50 / 50', callback_data: `es:${id}:5000` },
+      { text: '60 / 40', callback_data: `es:${id}:6000` },
+      { text: '40 / 60', callback_data: `es:${id}:4000` },
+      { text: '100% Илья', callback_data: `es:${id}:10000` },
+      { text: '100% Маша', callback_data: `es:${id}:0` },
+    ]
+  } else {
+    buttons = ['THB', 'ILS', 'USD'].map((currency) => ({ text: currency, callback_data: `eu:${id}:${currency}` }))
+  }
+  const rows = []
+  for (let index = 0; index < buttons.length; index += 2) rows.push(buttons.slice(index, index + 2))
+  rows.push([{ text: '⬅️ Назад', callback_data: `edit:${id}` }])
+  return { inline_keyboard: rows }
 }
 
 function normalizeTelegramDraft(item, context) {
@@ -973,6 +1030,15 @@ async function sendTelegramPreview(env, chatId, id, draft, categories, heading) 
   })
 }
 
+async function updateTelegramCard(env, callback, draft, categories, heading, replyMarkup) {
+  return telegramApi(env, 'editMessageText', {
+    chat_id: callback.message.chat.id,
+    message_id: callback.message.message_id,
+    text: telegramExpenseCard(draft, categories, heading),
+    reply_markup: replyMarkup,
+  })
+}
+
 function telegramExpenseInput(draft, captureMethod) {
   return {
     originalAmountMinor: draft.amountMinor,
@@ -990,30 +1056,93 @@ function telegramExpenseInput(draft, captureMethod) {
 }
 
 async function handleTelegramCallback(callback, env, identity, context) {
-  const match = typeof callback.data === 'string' && callback.data.match(/^(confirm|edit):([0-9a-f-]{36})$/i)
-  if (!match) {
+  const data = typeof callback.data === 'string' ? callback.data : ''
+  const simple = data.match(/^(confirm|edit|cancel|back|et):([0-9a-f-]{36})$/i)
+  const menu = data.match(/^m:([0-9a-f-]{36}):(category|owner|payer|split|currency)$/i)
+  const selection = data.match(/^(ec|eo|ep|es|eu):([0-9a-f-]{36}):(.+)$/i)
+  const pendingId = simple?.[2] || menu?.[1] || selection?.[2]
+  if (!pendingId) {
     await telegramApi(env, 'answerCallbackQuery', { callback_query_id: callback.id, text: 'Кнопка устарела.' })
     return
   }
   const telegramUserId = String(callback.from.id)
   const pending = await env.DB.prepare(`SELECT id, draft_json, capture_method, status
     FROM telegram_pending_expenses WHERE id = ? AND telegram_user_id = ?`)
-    .bind(match[2], telegramUserId).first()
+    .bind(pendingId, telegramUserId).first()
   if (!pending || pending.status === 'confirmed') {
     await telegramApi(env, 'answerCallbackQuery', { callback_query_id: callback.id, text: 'Этот расход уже обработан.' })
     return
   }
   const draft = JSON.parse(pending.draft_json)
-  if (match[1] === 'edit') {
+  const now = new Date().toISOString()
+
+  if (simple?.[1] === 'cancel') {
+    await env.DB.prepare('DELETE FROM telegram_pending_expenses WHERE id = ? AND telegram_user_id = ?')
+      .bind(pending.id, telegramUserId).run()
+    await telegramApi(env, 'answerCallbackQuery', { callback_query_id: callback.id, text: 'Расход отменён' })
+    await updateTelegramCard(env, callback, draft, context.categories, '❌ Расход отменён', { inline_keyboard: [] })
+      .catch(() => undefined)
+    return
+  }
+
+  if (simple?.[1] === 'edit') {
+    await env.DB.prepare(`UPDATE telegram_pending_expenses SET status = 'pending', updated_at = ?
+      WHERE id = ? AND telegram_user_id = ?`).bind(now, pending.id, telegramUserId).run()
+    await telegramApi(env, 'answerCallbackQuery', { callback_query_id: callback.id })
+    await updateTelegramCard(env, callback, draft, context.categories, '✏️ Что изменить?', telegramEditKeyboard(pending.id))
+    return
+  }
+
+  if (simple?.[1] === 'back') {
+    await env.DB.prepare(`UPDATE telegram_pending_expenses SET status = 'pending', updated_at = ?
+      WHERE id = ? AND telegram_user_id = ?`).bind(now, pending.id, telegramUserId).run()
+    await telegramApi(env, 'answerCallbackQuery', { callback_query_id: callback.id })
+    await updateTelegramCard(env, callback, draft, context.categories, 'Проверьте расход перед сохранением', telegramPreviewKeyboard(pending.id))
+    return
+  }
+
+  if (menu) {
+    await telegramApi(env, 'answerCallbackQuery', { callback_query_id: callback.id })
+    await updateTelegramCard(env, callback, draft, context.categories, 'Выберите новое значение',
+      telegramPickerKeyboard(pending.id, menu[2].toLowerCase(), context.categories))
+    return
+  }
+
+  if (selection) {
+    const kind = selection[1].toLowerCase()
+    const value = selection[3]
+    if (kind === 'ec' && /^\d+$/.test(value) && context.categories[Number(value)]) {
+      draft.categoryId = context.categories[Number(value)].id
+    }
+    else if (kind === 'eo' && OWNERS.has(value)) {
+      draft.owner = value
+      draft.ilyaShareBps = value === 'ilya' ? 10000 : value === 'masha' ? 0 : 5000
+    } else if (kind === 'ep' && OWNERS.has(value)) draft.paidFrom = value
+    else if (kind === 'es' && /^\d{1,5}$/.test(value) && Number(value) >= 0 && Number(value) <= 10000) {
+      draft.owner = 'mutual'
+      draft.ilyaShareBps = Number(value)
+    } else if (kind === 'eu' && EXPENSE_CURRENCIES.has(value)) draft.currency = value
+    else {
+      await telegramApi(env, 'answerCallbackQuery', { callback_query_id: callback.id, text: 'Значение устарело.' })
+      return
+    }
+    await env.DB.prepare(`UPDATE telegram_pending_expenses SET draft_json = ?, status = 'pending', updated_at = ?
+      WHERE id = ? AND telegram_user_id = ?`).bind(JSON.stringify(draft), now, pending.id, telegramUserId).run()
+    await telegramApi(env, 'answerCallbackQuery', { callback_query_id: callback.id, text: 'Обновлено' })
+    await updateTelegramCard(env, callback, draft, context.categories, '✏️ Что изменить?', telegramEditKeyboard(pending.id))
+    return
+  }
+
+  if (simple?.[1] === 'et') {
     await env.DB.batch([
       env.DB.prepare(`UPDATE telegram_pending_expenses SET status = 'pending', updated_at = ?
-        WHERE telegram_user_id = ? AND status = 'editing'`).bind(new Date().toISOString(), telegramUserId),
+        WHERE telegram_user_id = ? AND status = 'editing'`).bind(now, telegramUserId),
       env.DB.prepare(`UPDATE telegram_pending_expenses SET status = 'editing', updated_at = ?
-        WHERE id = ? AND telegram_user_id = ?`).bind(new Date().toISOString(), pending.id, telegramUserId),
+        WHERE id = ? AND telegram_user_id = ?`).bind(now, pending.id, telegramUserId),
     ])
-    await telegramApi(env, 'answerCallbackQuery', { callback_query_id: callback.id, text: 'Напишите исправление.' })
+    await telegramApi(env, 'answerCallbackQuery', { callback_query_id: callback.id, text: 'Напишите новое значение.' })
     await sendTelegramMessage(env, callback.message.chat.id,
-      `Что изменить в «${draft.merchant}»? Например: «сумма 450 бат, категория Кофе, оплатил Илья».`, {
+      `Что изменить в «${draft.merchant}»? Например: «сумма 450», «название Lotus», «дата 2026-10-06» или «заметка — продукты».`, {
         reply_markup: { force_reply: true, selective: true },
         reply_to_message_id: callback.message.message_id,
       })
