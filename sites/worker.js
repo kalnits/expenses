@@ -1386,6 +1386,18 @@ async function handleShortcutExpense(request, env) {
   authorizeShortcut(request, env)
   await initializeDatabase(env.DB)
   const body = await readJson(request)
+  let loggedAmount
+  try {
+    loggedAmount = body.amount === undefined ? '[undefined]' : JSON.stringify(body.amount)
+  } catch {
+    loggedAmount = '[unserializable]'
+  }
+  console.info(JSON.stringify({
+    event: 'shortcut_amount_received',
+    amount: loggedAmount.slice(0, 500),
+    amountType: Array.isArray(body.amount) ? 'array' : typeof body.amount,
+    rayId: request.headers.get('cf-ray'),
+  }))
   const person = PEOPLE.has(body.person) ? body.person : null
   if (!person) throw new HttpError(400, 'person должен быть ilya или masha.')
   const merchantValue = body.merchant === undefined ? '' : shortcutText(body.merchant)
