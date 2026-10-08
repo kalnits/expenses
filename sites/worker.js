@@ -1309,6 +1309,63 @@ function authorizeShortcut(request, env) {
   if (request.headers.get('authorization') !== `Bearer ${expected}`) throw new HttpError(401, 'Неверный токен Shortcuts.')
 }
 
+function shortcutCurrency(value) {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim().toUpperCase()
+  if (/THB|฿|БАТ|BAHT|บาท/u.test(normalized)) return 'THB'
+  if (/ILS|NIS|₪|ШЕКЕЛ/u.test(normalized)) return 'ILS'
+  if (/USD|\$|ДОЛЛАР/u.test(normalized)) return 'USD'
+  return null
+}
+
+function shortcutAmount(value, depth = 0) {
+  if (typeof value === 'number') return { amount: value, currency: null }
+  if (value && typeof value === 'object' && !Array.isArray(value) && depth < 3) {
+    const currency = shortcutCurrency(value.currency ?? value.currencyCode ?? value.currency_code)
+    const candidate = value.amount ?? value.value ?? value.number ?? value.decimalValue ?? value.localizedValue
+    if (candidate === undefined) return { amount: Number.NaN, currency }
+    const nested = shortcutAmount(candidate, depth + 1)
+    return { amount: nested.amount, currency: currency || nested.currency }
+  }
+  if (typeof value !== 'string') return { amount: Number.NaN, currency: null }
+  const text = value.trim()
+  if (depth < 3 && text.startsWith('{')) {
+    try { return shortcutAmount(JSON.parse(text), depth + 1) } catch { /* Use the formatted text below. */ }
+  }
+  const currency = shortcutCurrency(text)
+  let numeric = text
+    .replace(/[\s\u00a0\u202f]/gu, '')
+    .replace(/THB|ILS|NIS|USD|BAHT|บาท|БАТ(?:ОВ|А)?|ШЕКЕЛ(?:ЕЙ|Я)?|ДОЛЛАР(?:ОВ|А)?|฿|₪|\$/giu, '')
+    .replace(/[^\d.,+-]/gu, '')
+  const comma = numeric.lastIndexOf(',')
+  const dot = numeric.lastIndexOf('.')
+  if (comma >= 0 && dot >= 0) {
+    numeric = comma > dot
+      ? numeric.replace(/\./g, '').replace(',', '.')
+      : numeric.replace(/,/g, '')
+  } else if (comma >= 0) {
+    const decimals = numeric.length - comma - 1
+    numeric = decimals > 0 && decimals <= 2
+      ? `${numeric.slice(0, comma).replace(/,/g, '')}.${numeric.slice(comma + 1)}`
+      : numeric.replace(/,/g, '')
+  } else if (dot >= 0 && numeric.indexOf('.') !== dot) {
+    const decimals = numeric.length - dot - 1
+    numeric = decimals > 0 && decimals <= 2
+      ? `${numeric.slice(0, dot).replace(/\./g, '')}.${numeric.slice(dot + 1)}`
+      : numeric.replace(/\./g, '')
+  } else if (dot >= 0 && numeric.length - dot - 1 === 3) {
+    numeric = numeric.replace('.', '')
+  }
+  return { amount: Number(numeric), currency }
+}
+
+function shortcutText(value) {
+  if (typeof value === 'string') return value.trim()
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const candidate = value.name ?? value.merchant ?? value.title ?? value.value ?? value.description
+  return typeof candidate === 'string' ? candidate.trim() : null
+}
+
 function shortcutCategory(context, requested, merchant, notes) {
   if (requested !== undefined) {
     if (typeof requested !== 'string' || !requested.trim()) throw new HttpError(400, 'Проверьте category.')
@@ -1331,16 +1388,19 @@ async function handleShortcutExpense(request, env) {
   const body = await readJson(request)
   const person = PEOPLE.has(body.person) ? body.person : null
   if (!person) throw new HttpError(400, 'person должен быть ilya или masha.')
-  if (body.merchant !== undefined && typeof body.merchant !== 'string') throw new HttpError(400, 'merchant должен быть текстом.')
-  const merchantValue = typeof body.merchant === 'string' ? body.merchant.trim() : ''
+  const merchantValue = body.merchant === undefined ? '' : shortcutText(body.merchant)
+  if (merchantValue === null) throw new HttpError(400, 'merchant должен быть текстом или объектом с названием.')
   if (merchantValue.length > 200) throw new HttpError(400, 'merchant должен быть короче 200 символов.')
   const merchant = merchantValue || 'Apple Pay'
-  const amount = typeof body.amount === 'number' ? body.amount : Number(body.amount)
+  const parsedAmount = shortcutAmount(body.amount)
+  const amount = parsedAmount.amount
   const amountMinor = Math.round(amount * 100)
   if (!Number.isFinite(amount) || amount <= 0 || !Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
-    throw new HttpError(400, 'amount должен быть положительным числом.')
+    throw new HttpError(400, 'amount должен содержать положительную сумму, например 1250, ฿1,250.00 или 1 250,00 THB.')
   }
-  const currency = body.currency ?? 'THB'
+  const currency = body.currency === undefined
+    ? parsedAmount.currency || 'THB'
+    : shortcutCurrency(body.currency)
   if (!EXPENSE_CURRENCIES.has(currency)) throw new HttpError(400, 'currency должен быть THB, ILS или USD.')
   const expenseDate = body.expenseDate === undefined ? bangkokToday() : requireDate(body.expenseDate)
   const owner = body.owner ?? 'mutual'
@@ -1462,7 +1522,17 @@ const worker = {
       try { return await handleTelegramWebhook(request, env, context) } catch (error) { return errorResponse(error) }
     }
     if (url.pathname === '/api/shortcuts/expense') {
-      try { return await handleShortcutExpense(request, env) } catch (error) { return errorResponse(error) }
+      try {
+        return await handleShortcutExpense(request, env)
+      } catch (error) {
+        console.warn(JSON.stringify({
+          event: 'shortcut_expense_rejected',
+          message: error instanceof Error ? error.message : 'Неизвестная ошибка',
+          rayId: request.headers.get('cf-ray'),
+          status: error instanceof HttpError ? error.status : 500,
+        }))
+        return errorResponse(error)
+      }
     }
     if (url.pathname.startsWith('/api/')) {
       try { return await handleApi(request, env) } catch (error) { return errorResponse(error) }
